@@ -10,3 +10,10 @@ alembic
 psycopg2
 pydantic_settings
 pyjwt
+pytest
+pytest-asyncio
+httpx
+fastapi[all]
+pytest-cov
+aiosqlite
+

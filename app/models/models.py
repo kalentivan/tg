@@ -3,25 +3,45 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
-from .base import Base
+from .base import Base, BaseId
 
 
-class User(Base):
+class User(BaseId):
     __tablename__ = "users"
 
     username = Column(String, unique=True, index=True)
     email = Column(String, unique=True, index=True)
+    is_admin = Column(Boolean, default=False)
     password = Column(String)
 
     messages = relationship("Message", back_populates="sender")
     chats = relationship("Chat", secondary="group_members", back_populates="members")
 
     @property
+    def role(self):
+        return "client" if not self.is_admin else "admin"
+
+    @property
     def fields(self):
         return super().fields + ("email", "username")
 
 
-class Chat(Base):
+class IssuedJWTToken(Base):
+    """Таблица с выпущенными токенами"""
+    __tablename__ = "tokens"
+
+    jti = Column(Uuid, primary_key=True)
+    user_id = Column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    device_id = Column(String, nullable=False)
+    revoked = Column(Boolean, default=False)
+    expired_time = Column(Integer, default=0)
+
+    @property
+    def fields(self):
+        return super().fields + ("jti", "user_id", "device_id", "revoked", "expired_time")
+
+
+class Chat(BaseId):
     __tablename__ = "chats"
 
     name = Column(String, nullable=True)
@@ -45,7 +65,7 @@ class Chat(Base):
         return super().fields + ("name", "is_group", "admin_id")
 
 
-class GroupMember(Base):
+class GroupMember(BaseId):
     __tablename__ = "group_members"
 
     user_id = Column(Uuid, ForeignKey("users.id"), primary_key=True)
@@ -56,7 +76,7 @@ class GroupMember(Base):
         return super().fields + ("user_id", "chat_id")
 
 
-class Message(Base):
+class Message(BaseId):
     __tablename__ = "messages"
 
     chat_id = Column(Uuid, ForeignKey("chats.id"))
@@ -67,13 +87,24 @@ class Message(Base):
 
     chat = relationship("Chat", back_populates="messages")
     sender = relationship("User", back_populates="messages")
+    read_by = relationship("MessageRead", back_populates="message", cascade="all, delete-orphan")
+
+    @property
+    def timestamp_str(self) -> str:
+        """
+        Вернуть дату в формате dd.mm.yyyy hh:mm
+        :return: Отформатированная строка даты
+        """
+        if self.timestamp is None:
+            return "N/A"
+        return self.timestamp.strftime("%d.%m.%Y %H:%M")
 
     @property
     def fields(self):
-        return super().fields + ("chat_id", "sender_id", "text", "timestamp", "is_read")
+        return super().fields + ("chat_id", "sender_id", "text", "timestamp_str", "is_read")
 
 
-class MessageRead(Base):
+class MessageRead(BaseId):
     __tablename__ = "message_reads"
 
     message_id = Column(Uuid, ForeignKey("messages.id"), primary_key=True)
@@ -84,6 +115,16 @@ class MessageRead(Base):
     user = relationship("User")
 
     @property
+    def read_at_str(self) -> str:
+        """
+        Вернуть дату в формате dd.mm.yyyy hh:mm
+        :return: Отформатированная строка даты
+        """
+        if self.read_at is None:
+            return "N/A"
+        return self.read_at.strftime("%d.%m.%Y %H:%M")
+
+    @property
     def fields(self):
-        return super().fields + ("message_id", "user_id", "read_at")
-    
+        return super().fields + ("message_id", "user_id", "read_at_str")
+

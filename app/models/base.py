@@ -1,4 +1,5 @@
-from typing import Any, List, Optional, Self, Sequence, Type, TypeVar
+import uuid
+from typing import Any, List, Optional, Self, Sequence, TypeVar
 
 from fastapi import HTTPException
 from sqlalchemy import Column, Row, RowMapping, Uuid, select, update
@@ -6,24 +7,26 @@ from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
 from starlette import status
 
+from app.tools import validate_uuid
 from core.types import ID
 
 T = TypeVar("T", bound="Base")
 
 
 class Base(AsyncAttrs, DeclarativeBase):
-    id = Column(Uuid, primary_key=True, index=True)
 
     @property
-    def fields(self):
-        return ("id",)
+    def fields(self) -> tuple:
+        return tuple()
 
     def to_dict(self):
-        return {field: getattr(self, field) for field in self.fields}
+        _ = getattr
+        return {f: _(self, f) if not isinstance(_(self, f), uuid.UUID) else str(_(self, f)) for f in self.fields}
 
     @classmethod
-    async def get_or_404(cls: Type[T],
-                         session: Optional[AsyncSession], **kwargs) -> T:
+    async def get_or_404(cls,
+                         session: Optional[AsyncSession],
+                         er_status=status.HTTP_404_NOT_FOUND, er_msg=None, **kwargs) -> Self:
         """
         Возвращает первый объект, соответствующий фильтру, или вызывает HTTPException 404.
         Пример: await User.get_or_404(id=1)
@@ -31,12 +34,12 @@ class Base(AsyncAttrs, DeclarativeBase):
         result = await session.execute(select(cls).filter_by(**kwargs))
         obj = result.scalar_one_or_none()
         if obj is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"{cls.__name__} with {kwargs} not found")
+            raise HTTPException(status_code=er_status, detail=er_msg or f"{cls.__name__} with {kwargs} not found")
         return obj
 
     @classmethod
-    async def first(cls: Type[T],
-                    session: Optional[AsyncSession] = None, **kwargs) -> Optional[T]:
+    async def first(cls,
+                    session: Optional[AsyncSession] = None, **kwargs) -> Self:
         """
         Возвращает первый объект, соответствующий фильтру, или None.
         Пример: await User.first(email="alice@example.com")
@@ -45,20 +48,7 @@ class Base(AsyncAttrs, DeclarativeBase):
         return result.scalar_one_or_none()
 
     @classmethod
-    async def by_ids(cls: Type['Base'],
-                     ids: List[ID],
-                     session: Optional[AsyncSession] = None) -> list[Any] | Sequence[Self]:
-        """
-        Возвращает список объектов, соответствующих списку ID.
-        Пример: await User.by_ids(ids=[1, 2, 3])
-        """
-        if not ids:  # Если список ID пуст, возвращаем пустой список
-            return []
-        result = await session.execute(select(cls).where(cls.id.in_(ids)))
-        return result.scalars().all()
-
-    @classmethod
-    async def list_rows(cls: Type[T], session: Optional[AsyncSession] = None, **kwargs) -> List[dict]:
+    async def list_rows(cls, session: Optional[AsyncSession] = None, **kwargs) -> List[dict]:
         """
         Возвращает список словарей напрямую из базы данных, соответствующих фильтру.
         Пример: await User.list_rows(is_active=True)
@@ -72,13 +62,43 @@ class Base(AsyncAttrs, DeclarativeBase):
         return [dict(row) for row in result.mappings()]
 
     @classmethod
-    async def list(cls: Type[T], session: Optional[AsyncSession] = None, **kwargs) -> Sequence[
-                                                                                     Row[Any] | RowMapping | Any] | Any:
+    async def list(cls, session: Optional[AsyncSession] = None, **kwargs) -> Sequence[
+                                                                                 Row[Any] | RowMapping | Any] | Any:
         """
         Возвращает список объектов, соответствующих фильтру.
         Пример: await User.list(is_active=True)
         """
         result = await session.execute(select(cls).filter_by(**kwargs))
+        return result.scalars().all()
+
+    async def delete(self, session: AsyncSession = None):
+        """
+        Удаляет объект из базы данных.
+        """
+        await session.delete(self)
+        await session.commit()
+
+
+class BaseId(Base):
+    __abstract__ = True  # Указываем, что это абстрактный класс
+    id = Column(Uuid, primary_key=True, index=True, default=uuid.uuid4)
+
+    @property
+    def fields(self):
+        return super().fields + ("id", )
+
+    @classmethod
+    async def by_ids(cls,
+                     ids: List[ID],
+                     session: Optional[AsyncSession] = None) -> list[Any] | Sequence[Self]:
+        """
+        Возвращает список объектов, соответствующих списку ID.
+        Пример: await User.by_ids(ids=[1, 2, 3])
+        """
+        if not ids:  # Если список ID пуст, возвращаем пустой список
+            return []
+        ids = [validate_uuid(item_id) for item_id in ids]
+        result = await session.execute(select(cls).where(cls.id.in_(ids)))
         return result.scalars().all()
 
     async def save(self,
@@ -102,15 +122,8 @@ class Base(AsyncAttrs, DeclarativeBase):
             await session.commit()
             await session.refresh(self)
 
-    async def delete(self, session: AsyncSession = None):
-        """
-        Удаляет объект из базы данных.
-        """
-        await session.delete(self)
-        await session.commit()
-
     @classmethod
-    async def create(cls: Type[T], session: Optional[AsyncSession] = None, **kwargs) -> T:
+    async def create(cls, session: Optional[AsyncSession] = None, **kwargs) -> Self:
         """
         Создаёт новый объект модели и сохраняет его в базе данных.
         Пример: await User.create(email="alice@example.com", password="hashed_password")

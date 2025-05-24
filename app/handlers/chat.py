@@ -4,13 +4,14 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from starlette import status
 
-from app.models.models import Message, MessageRead
+from app.models.models import Chat, Message, MessageRead, User
 from app.services.websocket import connection_manager
+from app.tools import validate_uuid
 
 
-async def send_message(websocket, session, user, data: dict, chat):
+async def send_message(websocket, session, user: User, data: dict, chat: Chat):
     message_text = data.get("text")
-    message_uuid = data.get("uuid")
+    message_uuid = validate_uuid(data.get("uuid"))
     if not message_text or not message_uuid:
         await websocket.send_json({"error": "Требуются поля text и uuid"})
         return

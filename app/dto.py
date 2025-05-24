@@ -14,16 +14,11 @@ class UserPwdDTO(UserDTO):
     password: str | None
 
 
-class User(UserDTO):
-    id: ID | None
-
-    class Config:
-        orm_mode = True
-
-
 class ChatDTO(BaseModel):
+    id: str = ""
     name: Optional[str] = None
     is_group: bool = False
+    admin_id: str = ""
 
 
 class ChatIds(ChatDTO):
@@ -32,7 +27,7 @@ class ChatIds(ChatDTO):
 
 class Chat(ChatDTO):
     id: ID
-    members: List[User] = []
+    members: List[UserDTO] = []
 
     class Config:
         orm_mode = True
@@ -50,14 +45,14 @@ class Message(MessageBase):
     id: ID
     chat_id: ID
     sender_id: ID
-    timestamp: datetime
+    timestamp: str
     is_read: bool
 
     class Config:
         orm_mode = True
 
 
-class MessageHistory(BaseModel):
+class MessageHistoryDTO(BaseModel):
     messages: List[Message]
     total: int
 
@@ -70,3 +65,13 @@ class ChatCreateDTO(BaseModel):
 
 class MemberAddDTO(BaseModel):
     user_id: ID
+
+
+class TokensDTO(BaseModel):
+    user_id: ID = 0
+    role: str = ""
+    access_token: str = ""
+    refresh_token: str | None = ""
+    access_ttl: int = 0
+    refresh_ttl: int = 0
+

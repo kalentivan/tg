@@ -4,13 +4,15 @@ from sqlalchemy import func, select
 from app.auth.auth import get_current_user
 from app.database import get_db
 from app.models.models import Chat, Message, User, GroupMember
-from app.dto import ChatCreateDTO, ChatDTO, MemberAddDTO
+from app.dto import ChatCreateDTO, ChatDTO, MemberAddDTO, MessageHistoryDTO
+from app.tools import validate_uuid
 from core.types import ID
 
 router = APIRouter(tags=["chat"])
 
 
-@router.post("/chat/", response_model=ChatDTO)
+@router.post("/chat/",
+             response_model=ChatDTO)
 async def create_chat(
         chat_data: ChatCreateDTO,
         user: User = Depends(get_current_user),
@@ -48,7 +50,7 @@ async def create_chat(
 
 @router.delete("/chat/{chat_id}/")
 async def delete_chat(
-        chat_id: int,
+        chat_id: ID,
         user: User = Depends(get_current_user),
         session=Depends(get_db)
 ) -> Response:
@@ -56,21 +58,25 @@ async def delete_chat(
     Удаление чата. Пользователь должен быть участником (для личного) или создателем (для группового).
     Удаляет чат, связанные сообщения и записи об участниках.
     """
+    chat_id = validate_uuid(chat_id)
     chat = await Chat.get_or_404(id=chat_id, session=session)
-    if user not in chat.members:
+    # Асинхронно запрашиваем участников
+    members = await GroupMember.list(session=session, chat_id=chat.id)
+    member_ids = [member.user_id for member in members]
+    if user.id not in member_ids:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Вы не участник этого чата")
     if chat.is_group and chat.admin_id != user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                             detail="Только создатель может удалить групповой чат")
 
-    await chat.delete()  # удаляются и сообщения чата
+    await chat.delete(session=session)  # удаляются и сообщения чата
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/chat/{chat_id}/members/",
              response_model=ChatDTO)
 async def add_member(
-        chat_id: int,
+        chat_id: ID,
         member_data: MemberAddDTO,
         user: User = Depends(get_current_user),
         session=Depends(get_db)
@@ -78,16 +84,19 @@ async def add_member(
     """
     Добавление пользователя в групповой чат. Только участники чата могут добавлять новых.
     """
+    chat_id = validate_uuid(chat_id)
+    user_id = validate_uuid(member_data.user_id)
     chat = await Chat.get_or_404(id=chat_id, session=session)
     if not chat.is_group:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Добавление участников возможно только в групповой чат")
-
-    if user not in chat.members:
+    members = await GroupMember.list(session=session, chat_id=chat.id)
+    member_ids = [member.user_id for member in members]
+    if user.id not in member_ids:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Вы не участник этого чата")
 
-    new_member = await User.get_or_404(id=member_data.user_id, session=session)
-    if new_member in chat.members:
+    new_member = await User.get_or_404(id=user_id, session=session)
+    if new_member in [member.user_id for member in members]:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Пользователь уже в чате")
 
     await GroupMember.create(user_id=new_member.id, chat_id=chat.id, session=session)
@@ -95,21 +104,22 @@ async def add_member(
 
 
 @router.post("/chat/{chat_id}/history/",
-             response_model=ChatDTO)
+             response_model=MessageHistoryDTO)
 async def router_history(
         chat_id: ID,
         limit: int = 10,
         offset: int = 0,
         user: User = Depends(get_current_user),
         session=Depends(get_db)
-) -> ChatDTO:
+) -> dict:
+    chat_id = validate_uuid(chat_id)
     result = await session.execute(
-            select(Message)
-            .filter(Message.chat_id == chat_id)
-            .order_by(Message.timestamp.asc())
-            .offset(offset)
-            .limit(limit)
-        )
+        select(Message)
+        .filter(Message.chat_id == chat_id)
+        .order_by(Message.timestamp.asc())
+        .offset(offset)
+        .limit(limit)
+    )
     messages = result.scalars().all()
 
     # Получаем общее количество сообщений
@@ -118,6 +128,8 @@ async def router_history(
     )
     total = count_result.scalar_one()
 
-    return messages, total
-
+    return {
+        "messages": [message.to_dict() for message in messages],
+        "total": total
+    }
 

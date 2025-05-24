@@ -2,15 +2,18 @@
 Роуты авторизации
 """
 from typing import List
+from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from starlette.responses import Response
 
-from app.auth.auth import get_current_user
+from app.auth.auth import get_current_user, get_current_user_and_device
 from app.auth.init import get_auth_service
 from app.auth.service import AuthService
-from app.database import get_db
-from app.dto import UserDTO, UserPwdDTO
+from app.auth.token import del_tokens, set_tokens
+from app.tools import validate_uuid
+from app.database import AsyncSessionLocal, get_db
+from app.dto import TokensDTO, UserDTO, UserPwdDTO
 from app.models.models import User
 from core.types import ID
 
@@ -21,12 +24,12 @@ USER_ROUTES = ["Пользователь"]
 
 
 @router.post("/login/",
-             response_model=UserDTO,
+             response_model=TokensDTO,
              tags=LOGIN_ROUTES)
 async def route_login(response: Response,
-                      user_data: UserDTO,
+                      user_data: UserPwdDTO,
                       auth_service: AuthService = Depends(get_auth_service),
-                      session=Depends(get_db)) -> dict:
+                      session=Depends(get_db)) -> TokensDTO:
     """
 
     :param session:
@@ -35,26 +38,31 @@ async def route_login(response: Response,
     :param auth_service:
     :return:
     """
-    user = await auth_service.login(data=user_data, session=session)
+    tokens = await auth_service.login(data=user_data, session=session)
     response.status_code = 200
-    return user.fields
+    set_tokens(response, tokens.access_token, tokens.refresh_token)
+    return tokens
 
 
 @router.delete("/logout/",
-               tags=LOGIN_ROUTES)
+               tags=LOGIN_ROUTES,
+               response_model=None)
 async def route_logout(response: Response,
-                       user: User = Depends(get_current_user),
+                       session_data: tuple[User, str] = Depends(get_current_user_and_device),
                        auth_service: AuthService = Depends(get_auth_service),
-                       session=Depends(get_db)) -> Response:
+                       session: AsyncSessionLocal = Depends(get_db),
+                       ) -> Response:
     """
     С токеном авторизации
     :param session:
     :param response:
-    :param user:
+    :param session_data:
     :param auth_service:
     :return:
     """
-    await auth_service.logout(user=user, session=session)
+    user, device_id = session_data
+    await auth_service.logout(user=user, device_id=device_id, session=session)
+    del_tokens(response)
     response.status_code = 200
     return response
 
@@ -75,13 +83,14 @@ async def route_get_user(response: Response,
             response_model=UserDTO,
             tags=USER_ROUTES)
 async def route_get_user(response: Response,
-                         item_id: ID,
+                         item_id: str,
                          user: User = Depends(get_current_user),
                          session=Depends(get_db)) -> dict:
     """Получение данных пользователя. С токеном авторизации."""
+    item_id = validate_uuid(item_id)
     response.status_code = 200
     user = await User.get_or_404(id=item_id, session=session)
-    return user.fields
+    return user.to_dict()
 
 
 @router.post("/user/",
@@ -92,8 +101,9 @@ async def route_create_user(response: Response,
                             auth_service: AuthService = Depends(get_auth_service),
                             session=Depends(get_db)) -> dict[str, str | None]:
     """Создание пользователя. С токеном авторизации"""
-    user = await auth_service.register(user_data, session=session)
+    user, tokens = await auth_service.register(user_data, session=session)
     response.status_code = 200
+    set_tokens(response, tokens.access_token, tokens.refresh_token)
     return user.to_dict()
 
 
@@ -101,11 +111,12 @@ async def route_create_user(response: Response,
               response_model=UserDTO,
               tags=USER_ROUTES)
 async def route_edit_user(response: Response,
-                          item_id: ID,
                           user_data: UserDTO,
+                          item_id: str,
                           user: User = Depends(get_current_user),
                           session=Depends(get_db)) -> dict:
     """Редактирование данных пользователя. С токеном авторизации."""
+    item_id = validate_uuid(item_id)
     user = await User.get_or_404(id=item_id, session=session)
     user.username = user_data.username
     await user.save(update_fields=["username"], session=session)
@@ -116,11 +127,12 @@ async def route_edit_user(response: Response,
 @router.delete("/user/{item_id}/",
                tags=USER_ROUTES)
 async def route_delete_user(response: Response,
-                            item_id: ID,
+                            item_id: str,
                             user: User = Depends(get_current_user),
                             session=Depends(get_db)) -> Response:
     """Удаление пользователя из базы данных. С токеном авторизации."""
+    item_id = validate_uuid(item_id)
     user = await User.get_or_404(id=item_id, session=session)
-    await user.save(session=session)
+    await user.delete(session=session)
     response.status_code = 200
     return response
