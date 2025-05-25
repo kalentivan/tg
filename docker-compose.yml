@@ -11,7 +11,7 @@ services:
       - ./logs:/app/logs
       - ./stat:/app/stat
     depends_on:
-      pgbouncer:
+      db:
         condition: service_healthy
     networks:
       - tg-net
