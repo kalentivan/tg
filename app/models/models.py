@@ -47,7 +47,7 @@ class Chat(BaseId):
 
     name = Column(String, nullable=True)
     is_group = Column(Boolean, default=False)
-    admin_id = Column(Uuid, ForeignKey("users.id"), primary_key=True)
+    admin_id = Column(Uuid, ForeignKey("users.id"))
 
     messages = relationship("Message", back_populates="chat", cascade="all, delete-orphan")
     members = relationship("User", secondary="group_members", back_populates="chats")
