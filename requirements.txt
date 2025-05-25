@@ -16,4 +16,5 @@ httpx
 fastapi[all]
 pytest-cov
 aiosqlite
+setuptools
 
