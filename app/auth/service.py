@@ -10,10 +10,9 @@ from app.auth.my_jwt import JWTAuth
 from app.auth.password import get_password_hash, verify_password
 from app.auth.types import TokenType
 from app.auth.utils import check_revoked, generate_device_id
-
-from app.dto import TokensDTO, UserDTO, UserPwdDTO
-from app.tools import validate_uuid
+from app.dto import TokensDTO, UserPwdDTO
 from app.models.models import IssuedJWTToken, User
+from app.tools import validate_uuid
 
 
 class AuthService:

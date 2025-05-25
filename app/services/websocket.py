@@ -1,5 +1,6 @@
-from fastapi import WebSocket
 from typing import Dict, Set
+
+from fastapi import WebSocket
 
 from core.types import ID
 

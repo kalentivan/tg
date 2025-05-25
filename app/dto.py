@@ -1,6 +1,6 @@
+from typing import List, Optional
+
 from pydantic import BaseModel
-from datetime import datetime
-from typing import Optional, List
 
 from core.types import ID
 

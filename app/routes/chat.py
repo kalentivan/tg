@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import func, select
 
 from app.auth.auth import get_current_user
 from app.database import get_db
-from app.models.models import Chat, Message, User, GroupMember
 from app.dto import ChatCreateDTO, ChatDTO, MemberAddDTO, MessageHistoryDTO
+from app.models.models import Chat, GroupMember, Message, User
 from app.tools import validate_uuid
 from core.types import ID
 

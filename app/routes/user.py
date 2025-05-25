@@ -2,7 +2,6 @@
 Роуты авторизации
 """
 from typing import List
-from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from starlette.responses import Response
@@ -11,11 +10,10 @@ from app.auth.auth import get_current_user, get_current_user_and_device
 from app.auth.init import get_auth_service
 from app.auth.service import AuthService
 from app.auth.token import del_tokens, set_tokens
-from app.tools import validate_uuid
 from app.database import AsyncSessionLocal, get_db
 from app.dto import TokensDTO, UserDTO, UserPwdDTO
 from app.models.models import User
-from core.types import ID
+from app.tools import validate_uuid
 
 router = APIRouter()
 

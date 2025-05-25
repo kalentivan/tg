@@ -1,15 +1,14 @@
 from fastapi import Depends, HTTPException
 from jose import JWTError, jwt
-from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
 from app.auth.config import get_auth_data
 from app.auth.password import verify_password
 from app.auth.token import get_token, get_ws_token
-from app.tools import validate_uuid
 from app.database import get_db
 from app.models.models import User
+from app.tools import validate_uuid
 
 
 async def authenticate_user(email: str,

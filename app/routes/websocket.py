@@ -1,18 +1,17 @@
 import uuid
 
-from fastapi import APIRouter, WebSocket, Depends, WebSocketDisconnect
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from sqlalchemy import join, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException
 from starlette.status import HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
 
 from app.auth.auth import get_current_ws_user
-from app.handlers.chat import read_message, send_message
-from app.models.models import GroupMember, User, Chat
-from app.services.websocket import connection_manager
-from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
+from app.handlers.chat import read_message, send_message
+from app.models.models import Chat, GroupMember, User
+from app.services.websocket import connection_manager
 from app.tools import validate_uuid
-
 from core.types import ID
 
 router = APIRouter()

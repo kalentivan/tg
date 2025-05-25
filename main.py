@@ -1,7 +1,7 @@
 import uvicorn
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
-from app.database import engine, get_db
+from app.database import engine
 from app.models.base import Base
 from app.routes import user, websocket, chat
 
