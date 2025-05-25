@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y  \
     libssl-dev \
     libffi-dev \
     libpq-dev \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt requirements.txt
