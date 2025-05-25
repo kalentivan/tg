@@ -3,7 +3,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.websockets import WebSocket
 from starlette import status
-from app.auth.token import get_token, get_ws_token, get_token_header_and_cookies, set_tokens, del_tokens
+from app.auth.token import get_token, get_ws_token, set_tokens, del_tokens
 from fastapi import HTTPException
 from http.cookies import SimpleCookie
 
@@ -165,46 +165,6 @@ async def test_get_ws_token_invalid_format(mock_websocket):
     assert exc.value.detail == 'Invalid authorization header format'
     assert mock_websocket._closed
     assert mock_websocket.close_code == 1008
-
-
-def test_get_token_header_and_cookies_from_cookie(mock_request):
-    """Проверяет получение токена из cookies."""
-    mock_request.cookies['users_access_token'] = 'cookie_token_123'
-    token = get_token_header_and_cookies(mock_request)
-    assert token == 'cookie_token_123'
-
-
-def test_get_token_header_and_cookies_from_header(mock_request):
-    """Проверяет получение токена из заголовка Authorization."""
-    mock_request.headers['Authorization'] = 'Bearer header_token_123'
-    token = get_token_header_and_cookies(mock_request)
-    assert token == 'header_token_123'
-
-
-def test_get_token_header_and_cookies_missing(mock_request):
-    """Проверяет, что отсутствие токена вызывает 401."""
-    with pytest.raises(HTTPException) as exc:
-        get_token_header_and_cookies(mock_request)
-    assert exc.value.status_code == status.HTTP_401_UNAUTHORIZED
-    assert exc.value.detail == 'Token not found'
-
-
-def test_get_token_header_and_cookies_invalid_scheme(mock_request):
-    """Проверяет, что неверная схема в заголовке вызывает 401."""
-    mock_request.headers['Authorization'] = 'Basic header_token_123'
-    with pytest.raises(HTTPException) as exc:
-        get_token_header_and_cookies(mock_request)
-    assert exc.value.status_code == status.HTTP_401_UNAUTHORIZED
-    assert exc.value.detail == 'Invalid authorization scheme'
-
-
-def test_get_token_header_and_cookies_invalid_format(mock_request):
-    """Проверяет, что неверный формат заголовка вызывает 401."""
-    mock_request.headers['Authorization'] = 'Bearer'
-    with pytest.raises(HTTPException) as exc:
-        get_token_header_and_cookies(mock_request)
-    assert exc.value.status_code == status.HTTP_401_UNAUTHORIZED
-    assert exc.value.detail == 'Invalid authorization header format'
 
 
 def test_set_tokens(mock_response):

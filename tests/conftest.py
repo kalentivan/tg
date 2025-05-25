@@ -1,7 +1,7 @@
 import os
 import random
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, timedelta
 
 import pytest
 from dotenv import load_dotenv
@@ -15,11 +15,30 @@ load_dotenv()
 from app.auth.service import AuthService
 from app.database import get_db
 from app.dto import UserPwdDTO
-from app.main import app
+from main import app
 from app.models.models import Base, Chat, GroupMember, Message, MessageRead, User
+import aiosqlite
+from datetime import datetime
+
+
+def adapt_datetime(dt: datetime) -> str:
+    return dt.isoformat()
+
+
+def convert_datetime(value: bytes) -> datetime:
+    return datetime.fromisoformat(value.decode())
+
+
+aiosqlite.register_adapter(datetime, adapt_datetime)
+aiosqlite.register_converter("timestamp", convert_datetime)
 
 # Тестовая база данных (SQLite в памяти)
-TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", "sqlite+aiosqlite:///test.sqlite")
+# TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", "sqlite+aiosqlite:///test.sqlite")
+USER = os.getenv("TG_DB_USER")
+PWD = os.getenv("TG_DB_PASSWORD")
+HOST = os.getenv("TG_DB_HOST")
+PORT = os.getenv("TG_DB_PORT")
+TEST_DATABASE_URL = f"postgresql+asyncpg://{USER}:{PWD}@{HOST}:{PORT}/tg-test"
 engine = create_async_engine(TEST_DATABASE_URL, echo=False)
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -33,29 +52,22 @@ async def override_get_db():
         except Exception:
             await session.rollback()
             raise
-        finally:
-            await session.close()
 
 
 app.dependency_overrides[get_db] = override_get_db
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    import asyncio
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 async def db_engine():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)  # Сбрасываем таблицы перед созданием
-        await conn.run_sync(Base.metadata.create_all)  # Создаём таблицы
-    yield engine
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)  # Сбрасываем таблицы перед созданием
+            await conn.run_sync(Base.metadata.create_all)  # Создаём таблицы
+        yield engine
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+    finally:
+        await engine.dispose()  # 💡 добавляем очистку пула
 
 
 @pytest.fixture
@@ -212,7 +224,7 @@ async def test_data(db_session):
                 chat_id=chat.id,
                 sender_id=sender_id,
                 text=f"Message {i} in chat {chat.id}",
-                timestamp=datetime.utcnow() - timedelta(minutes=random.randint(0, 1000)),
+                timestamp=datetime.now(UTC) - timedelta(minutes=random.randint(0, 1000)),
                 is_read=random.choice([True, False]) if not chat.is_group else False,
                 id=uuid.uuid4(),
                 session=db_session

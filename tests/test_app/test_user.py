@@ -1,13 +1,17 @@
 import pytest
+from httpx import ASGITransport, AsyncClient
 
 from app.dto import UserDTO, UserPwdDTO
 from app.models.models import User
+from main import app
 
 
 @pytest.mark.asyncio
 async def test_login_success(client, auth_headers, test_user, db_engine):
     user_data = UserPwdDTO(username="testuser", email="test@example.com", password="test123")
-    response = client.post("/login/", json=user_data.dict())
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        response = await ac.post("/login/", json=user_data.model_dump())
     assert response.status_code == 200
     data = response.json()
     assert data["role"] == test_user.role
@@ -17,19 +21,25 @@ async def test_login_success(client, auth_headers, test_user, db_engine):
 @pytest.mark.asyncio
 async def test_login_invalid(client, db_engine):
     user_data = UserPwdDTO(username="invalid", email="invalid@example.com", password="dd")
-    response = client.post("/login/", json=user_data.dict())
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        response = await ac.post("/login/", json=user_data.model_dump())
     assert response.status_code == 401  # Предполагаем, что AuthService возвращает 401
 
 
 @pytest.mark.asyncio
 async def test_logout(client, auth_headers):
-    response = client.delete("/logout/", headers=auth_headers)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        response = await ac.delete("/logout/", headers=auth_headers)
     assert response.status_code == 200
 
 
 @pytest.mark.asyncio
 async def test_get_users(client, auth_headers, test_user, test_user2):
-    response = client.get("/users/", headers=auth_headers)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        response = await ac.get("/users/", headers=auth_headers)
     assert response.status_code == 200
     users = response.json()
     assert len(users) >= 2
@@ -39,7 +49,9 @@ async def test_get_users(client, auth_headers, test_user, test_user2):
 
 @pytest.mark.asyncio
 async def test_get_user(client, auth_headers, test_user):
-    response = client.get(f"/user/{test_user.id}/", headers=auth_headers)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        response = await ac.get(f"/user/{test_user.id}/", headers=auth_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["username"] == "testuser"
@@ -48,7 +60,9 @@ async def test_get_user(client, auth_headers, test_user):
 @pytest.mark.asyncio
 async def test_create_user(client, auth_headers):
     user_data = UserPwdDTO(username="newuser", email="new@example.com", password="test123")
-    response = client.post("/user/", json=user_data.dict(), headers=auth_headers)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        response = await ac.post("/user/", json=user_data.model_dump(), headers=auth_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["username"] == "newuser"
@@ -57,7 +71,9 @@ async def test_create_user(client, auth_headers):
 @pytest.mark.asyncio
 async def test_update_user(client, auth_headers, test_user):
     user_data = UserDTO(username="updateduser", email="test@example.com")
-    response = client.patch(f"/user/{test_user.id}/", json=user_data.dict(), headers=auth_headers)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        response = await ac.patch(f"/user/{test_user.id}/", json=user_data.model_dump(), headers=auth_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["username"] == "updateduser"
@@ -65,7 +81,9 @@ async def test_update_user(client, auth_headers, test_user):
 
 @pytest.mark.asyncio
 async def test_delete_user(client, auth_headers, test_user, db_session):
-    response = client.delete(f"/user/{test_user.id}/", headers=auth_headers)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        response = await ac.delete(f"/user/{test_user.id}/", headers=auth_headers)
     assert response.status_code == 200
     user = await User.first(id=test_user.id, session=db_session)
     assert user is None

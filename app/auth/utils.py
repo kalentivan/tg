@@ -1,4 +1,5 @@
 import uuid
+from calendar import timegm
 from datetime import datetime, timezone
 from hashlib import sha256
 
@@ -7,8 +8,9 @@ from fastapi import Request
 from jwt.exceptions import InvalidTokenError
 from starlette import status
 from starlette.exceptions import HTTPException
+from datetime import timedelta
 
-from app.auth.config import get_auth_data
+from app.auth.config import settings
 from app.auth.types import TokenType
 from app.models.models import IssuedJWTToken
 from app.models.models import User
@@ -22,7 +24,7 @@ def generate_device_id() -> str:
     return str(uuid.uuid4())
 
 
-async def check_revoked(jti: str, session) -> bool:
+async def check_revoked(jti: str | uuid.UUID, session) -> bool:
     """
 
     :param jti:
@@ -34,30 +36,22 @@ async def check_revoked(jti: str, session) -> bool:
     return bool(note)
 
 
-def convert_to_timestamp(dt: datetime) -> int:
+def convert_to_timestamp(dt: datetime) -> timedelta:
     """
-    Преобразует datetime в timestamp
-    :param dt: Объект datetime
-    :return: timestamp в секундах
+    Преобразует объект datetime в timedelta, представляющий разницу от эпохи (1970-01-01 00:00:00 UTC).
+
+    :param dt: Объект datetime (должен быть offset-aware, т.е. с временной зоной)
+    :return: Объект timedelta, представляющий разницу между dt и началом эпохи
     """
+    # Убедимся, что dt имеет временную зону (offset-aware)
     if dt.tzinfo is None:
-        raise ValueError("Datetime must have timezone information")
+        raise ValueError("datetime object must be offset-aware (have timezone info)")
 
-    # Приводим время к UTC
-    dt_utc = dt.astimezone(timezone.utc)
+    # Получаем Unix-таймстамп в секундах
+    timestamp_seconds = timegm(dt.utctimetuple())
 
-    # Вычисляем количество секунд вручную
-    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
-
-    # Разница в днях
-    delta_days = (dt_utc.date() - epoch.date()).days
-    seconds_in_days = delta_days * 86400
-
-    # Время в секундах
-    seconds_in_time = dt_utc.hour * 3600 + dt_utc.minute * 60 + dt_utc.second
-
-    # Итоговый timestamp
-    return seconds_in_days + seconds_in_time
+    # Преобразуем в timedelta
+    return timedelta(seconds=timestamp_seconds)
 
 
 def get_sha256_hash(line: str) -> str:
@@ -69,7 +63,7 @@ def get_sha256_hash(line: str) -> str:
     return sha256(str.encode(line)).hexdigest()
 
 
-def __try_to_get_clear_token(authorization_header: str) -> str:
+def __try_to_get_clear_token(authorization_header: str | None) -> str:
     """
     Убрать из токена слово Bearer
     :param authorization_header:
@@ -96,8 +90,7 @@ async def check_access_token(request: Request,
     authorization_header = request.headers.get('Authorization')
     clear_token = __try_to_get_clear_token(authorization_header=authorization_header)
     try:
-        auth_data = get_auth_data()
-        payload = jwt.decode(jwt=clear_token, key=auth_data.secret, algorithms=[auth_data.algorithm],
+        payload = jwt.decode(jwt=clear_token, key=settings.SECRET_KEY, algorithms=[settings.ALGORITHM],
                              options={"verify_exp": False})
         if payload['type'] != TokenType.ACCESS.value:
             raise HTTPException(

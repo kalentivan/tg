@@ -1,17 +1,18 @@
 import uuid
-import pytest
 from datetime import datetime, timedelta, timezone
-from starlette.requests import Request
+
+import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 from starlette.exceptions import HTTPException
-from app.auth.utils import generate_device_id, check_revoked, convert_to_timestamp, get_sha256_hash, \
-    __try_to_get_clear_token, check_access_token
-from app.auth.my_jwt import JWTAuth
-from app.auth.config import get_auth_data
-from app.auth.types import TokenType
-from app.models.models import User, IssuedJWTToken
-from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import Request
 
+from app.auth.config import settings
+from app.auth.my_jwt import JWTAuth
+from app.auth.types import TokenType
+from app.auth.utils import __try_to_get_clear_token, check_access_token, check_revoked, convert_to_timestamp, \
+    generate_device_id, get_sha256_hash
+from app.models.models import IssuedJWTToken, User
 from app.tools import validate_uuid
 
 
@@ -56,39 +57,53 @@ def jwt_auth():
 
 
 @pytest.fixture
-def valid_token(jwt_auth):
+async def valid_token(jwt_auth, test_user_success, db_session):
     """Фикстура для создания валидного access токена."""
-    auth_data = get_auth_data()
-    user_id = uuid.UUID("550e8400-e29b-41d4-a716-446655440000")  # Пример UUID
-    payload = {"sub": str(user_id), "type": TokenType.ACCESS.value, "jti": "test-jti", "device_id": "test-device-id"}
+    # Фиксированный user_id
+    # Генерируем токен для этого пользователя
+    jti = uuid.uuid4()
+    payload = {
+        "sub": str(test_user_success.id),
+        "type": TokenType.ACCESS.value,
+        "jti": str(jti),
+        "device_id": "test-device-id"
+    }
     token = jwt_auth._JWTAuth__sign_token(
-        type=TokenType.ACCESS.value,
-        subject=str(user_id),
+        type_token=TokenType.ACCESS,
+        subject=str(test_user_success.id),
         payload=payload,
-        ttl=auth_data.access_token_ttl
+        ttl=settings.ACCESS_TOKEN_TTL
     )
+    token_obj = IssuedJWTToken(
+        user_id=test_user_success.id,
+        jti=jti,
+        device_id="revoked-device-id",
+        revoked=True,
+        expired_time=datetime.now(timezone.utc) + settings.ACCESS_TOKEN_TTL
+    )
+    db_session.add(token_obj)
+    await db_session.commit()
     return f"Bearer {token}"
 
 
 @pytest.fixture
-async def revoked_token(jwt_auth, db_session: AsyncSession):
+async def revoked_token(jwt_auth, test_user_revoke, db_session):
     """Фикстура для создания отозванного токена."""
-    auth_data = get_auth_data()
-    user_id = uuid.UUID("550e8400-e29b-41d4-a716-446655440001")  # Уникальный UUID
-    payload = {"sub": str(user_id), "type": TokenType.ACCESS.value, "jti": "revoked-jti",
+    jti = uuid.uuid4()
+    payload = {"sub": str(test_user_revoke.id), "type": TokenType.ACCESS.value, "jti": str(jti),
                "device_id": "revoked-device-id"}
     token = jwt_auth._JWTAuth__sign_token(
-        type=TokenType.ACCESS.value,
-        subject=str(user_id),
+        type_token=TokenType.ACCESS,
+        subject=str(test_user_revoke.id),
         payload=payload,
-        ttl=auth_data.access_token_ttl
+        ttl=settings.ACCESS_TOKEN_TTL
     )
     token_obj = IssuedJWTToken(
-        user_id=user_id,
-        jti=uuid.uuid4(),
+        user_id=test_user_revoke.id,
+        jti=jti,
         device_id="revoked-device-id",
         revoked=True,
-        expired_time=datetime.now(timezone.utc) + auth_data.access_token_ttl
+        expired_time=datetime.now(timezone.utc) + settings.ACCESS_TOKEN_TTL
     )
     db_session.add(token_obj)
     await db_session.commit()
@@ -98,8 +113,38 @@ async def revoked_token(jwt_auth, db_session: AsyncSession):
 @pytest.fixture
 async def test_user(db_session: AsyncSession):
     """Фикстура для создания тестового пользователя."""
-    user_id = uuid.UUID("550e8400-e29b-41d4-a716-446655440000")
+    user_id = uuid.UUID("550e8400-e29b-41d4-a716-44665544dd00")
     user = User(id=user_id, username="testuser", email="test@example.com", password="hashed_password")
+    db_session.add(user)
+    await db_session.commit()
+    return user
+
+
+@pytest.fixture
+async def test_user_token(db_session: AsyncSession):
+    """Фикстура для создания тестового пользователя."""
+    user_id = uuid.UUID("550e8400-e29b-41d4-a716-446655d4dd00")
+    user = User(id=user_id, username="test_user_token", email="test_user_token@example.com", password="hashed_password")
+    db_session.add(user)
+    await db_session.commit()
+    return user
+
+
+@pytest.fixture
+async def test_user_revoke(db_session: AsyncSession):
+    """Фикстура для создания тестового пользователя."""
+    user_id = uuid.UUID("550e8400-e29b-41d4-a716-446655d4dd00")
+    user = User(id=user_id, username="test_user_token", email="test_user_revoke@example.com", password="hashed_password")
+    db_session.add(user)
+    await db_session.commit()
+    return user
+
+
+@pytest.fixture
+async def test_user_success(db_session: AsyncSession):
+    """Фикстура для создания тестового пользователя."""
+    user_id = uuid.uuid4()
+    user = User(id=user_id, username="test_user_token", email="test_user_success@example.com", password="hashed_password")
     db_session.add(user)
     await db_session.commit()
     return user
@@ -119,10 +164,12 @@ def test_generate_device_id():
 
 async def test_check_revoked_not_revoked(db_session: AsyncSession):
     """Проверяет, что не отозванный токен возвращает False."""
-    user_id = uuid.UUID("550e8400-e29b-41d4-a716-446655440002")
+    user_id = uuid.uuid4()
+    user = await User.create(id=user_id, username="test_check_revoked_not_revoked",
+                             email="test_check_revoked_not_revoked@y.ru", session=db_session)
     jti = uuid.uuid4()
     token = IssuedJWTToken(
-        user_id=user_id,
+        user_id=user.id,
         jti=jti,
         device_id="test-device-id",
         revoked=False,
@@ -135,10 +182,12 @@ async def test_check_revoked_not_revoked(db_session: AsyncSession):
 
 async def test_check_revoked_revoked(db_session: AsyncSession):
     """Проверяет, что отозванный токен возвращает True."""
-    user_id = uuid.UUID("550e8400-e29b-41d4-a716-446655440003")
+    user_id = uuid.uuid4()
+    user = await User.create(id=user_id, username="test_check_revoked_not_revoked",
+                             email="test_check_revoked_not_revoked@y.ru", session=db_session)
     jti = uuid.uuid4()
     token = IssuedJWTToken(
-        user_id=user_id,
+        user_id=user.id,
         jti=jti,
         device_id="test-device-id",
         revoked=True,
@@ -153,8 +202,8 @@ def test_convert_to_timestamp():
     """Проверяет преобразование datetime в timestamp."""
     dt = datetime(2025, 5, 24, 16, 23, tzinfo=timezone.utc)
     timestamp = convert_to_timestamp(dt)
-    assert isinstance(timestamp, int)
-    assert timestamp == 1748103780  # TODO 1748146980 - Ожидаемое значение для 2025-05-24 16:23 UTC
+    assert isinstance(timestamp, timedelta)
+    assert timestamp == timedelta(seconds=1748103780)  # TODO 1748146980 - Ожидаемое значение для 2025-05-24 16:23 UTC
 
 
 def test_get_sha256_hash():
@@ -190,7 +239,7 @@ def test_try_to_get_clear_token_no_bearer():
 
 
 @pytest.mark.asyncio
-async def test_check_access_token_success(mock_request, jwt_auth, valid_token, db_session: AsyncSession, test_user):
+async def test_check_access_token_success(mock_request, jwt_auth, valid_token, db_session: AsyncSession, test_user_success):
     """Проверяет успешную проверку access токена."""
     mock_request.headers['Authorization'] = valid_token
     result = await check_access_token(mock_request, session=db_session)
@@ -222,13 +271,12 @@ async def test_check_access_token_revoked(mock_request, revoked_token, db_sessio
 @pytest.mark.asyncio
 async def test_check_access_token_no_user(mock_request, jwt_auth, db_session: AsyncSession):
     """Проверяет, что несуществующий пользователь вызывает 401."""
-    auth_data = get_auth_data()
     user_id = uuid.UUID("550e8400-e29b-41d4-a716-446655440004")
     token = jwt_auth._JWTAuth__sign_token(
-        type=TokenType.ACCESS.value,
+        type_token=TokenType.ACCESS,
         subject=str(user_id),
         payload={"device_id": "test-device-id"},
-        ttl=auth_data.access_token_ttl
+        ttl=settings.ACCESS_TOKEN_TTL
     )
     mock_request.headers['Authorization'] = f"Bearer {token}"
     with pytest.raises(HTTPException) as exc:

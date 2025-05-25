@@ -2,9 +2,11 @@ import uuid
 
 import pytest
 from jwt import InvalidTokenError
+
+from app.auth.config import settings
 from app.auth.my_jwt import JWTAuth
-from app.auth.config import get_auth_data
 from app.auth.tools import try_decode_token
+from app.auth.types import TokenType
 
 
 @pytest.fixture
@@ -16,13 +18,12 @@ def jwt_auth():
 @pytest.fixture
 def valid_token(jwt_auth):
     """Фикстура для создания валидного токена."""
-    auth_data = get_auth_data()
     payload = {"sub": "test-user", "type": "access", "jti": "test-jti"}
     token = jwt_auth._JWTAuth__sign_token(
-        type="access",
+        type_token=TokenType.ACCESS,
         subject="test-user",
         payload=payload,
-        ttl=auth_data.access_token_ttl
+        ttl=settings.ACCESS_TOKEN_TTL
     )
     return token
 

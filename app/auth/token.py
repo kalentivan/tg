@@ -6,11 +6,16 @@ from starlette.websockets import WebSocket
 
 
 def get_token(request: Request) -> str:
+    """
+    Берем токен из headers, либо если там нет - из cookies
+    :param request:
+    :return:
+    """
     auth_header = request.headers.get('Authorization')
     if not auth_header:
-        if token := request.cookies.get('users_access_token'):
-            return token
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Token not found')
+        if not (token := request.cookies.get('users_access_token')):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Token not found')
+        return token
     try:
         scheme, token = auth_header.split()
         if scheme.lower() != 'bearer':
@@ -20,7 +25,14 @@ def get_token(request: Request) -> str:
     return token
 
 
-async def get_ws_token(websocket: WebSocket, token: str = None) -> str:
+async def get_ws_token(websocket: WebSocket,
+                       token: str = None) -> str:
+    """
+    Получить токен для websocket
+    :param websocket:
+    :param token:
+    :return:
+    """
     if token:  # Токен передан как query-параметр
         return token
     if not (auth_header := websocket.headers.get('Authorization')):
@@ -34,21 +46,6 @@ async def get_ws_token(websocket: WebSocket, token: str = None) -> str:
     except ValueError:
         await websocket.close(code=1008)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid authorization header format')
-    return token
-
-
-def get_token_header_and_cookies(request: Request) -> str:
-    token = request.cookies.get('users_access_token')
-    if not token:
-        if not (auth_header:= request.headers.get('Authorization')):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Token not found')
-        try:
-            scheme, token = auth_header.split()
-            if scheme.lower() != 'bearer':
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid authorization scheme')
-        except ValueError:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                                detail='Invalid authorization header format')
     return token
 
 

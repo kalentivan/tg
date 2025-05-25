@@ -1,8 +1,9 @@
 import jwt
 import pytest
 from datetime import timedelta
+
+from app.auth.config import settings
 from app.auth.my_jwt import JWTAuth
-from app.auth.config import get_auth_data
 from app.auth.types import TokenType
 
 
@@ -27,62 +28,40 @@ def mock_env(monkeypatch):
     monkeypatch.delenv("REFRESH_TOKEN_TTL", raising=False)
 
 
-def test_generate_unlimited_access_token(jwt_auth, mock_env):
-    """Проверяет генерацию бесконечного access токена."""
-    subject = "test-user"
-    token = jwt_auth.generate_unlimited_access_token(subject)
-    payload = jwt.decode(token, get_auth_data().secret, algorithms=[get_auth_data().algorithm],
-                         options={"verify_exp": False})
-    assert payload["sub"] == subject
-    assert payload["type"] == TokenType.ACCESS.value
-    assert "exp" not in payload  # Бесконечный токен не имеет срока действия
-
-
 def test_generate_access_token(jwt_auth, mock_env):
     """Проверяет генерацию access токена с TTL."""
     subject = "test-user"
     token = jwt_auth.generate_access_token(subject)
-    payload = jwt.decode(token, get_auth_data().secret, algorithms=[get_auth_data().algorithm])
+    payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
     assert payload["sub"] == subject
     assert payload["type"] == TokenType.ACCESS.value
     assert "exp" in payload
     exp_timestamp = payload["exp"]
-    assert exp_timestamp > payload["iat"] + get_auth_data().access_token_ttl.total_seconds() - 1
+    assert timedelta(seconds=exp_timestamp) > timedelta(seconds=payload["iat"]) + settings.ACCESS_TOKEN_TTL - timedelta(seconds=1)
 
 
 def test_generate_refresh_token(jwt_auth, mock_env):
     """Проверяет генерацию refresh токена с TTL."""
     subject = "test-user"
     token = jwt_auth.generate_refresh_token(subject)
-    payload = jwt.decode(token, get_auth_data().secret, algorithms=[get_auth_data().algorithm])
+    payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
     assert payload["sub"] == subject
     assert payload["type"] == TokenType.REFRESH.value
     assert "exp" in payload
     exp_timestamp = payload["exp"]
-    assert exp_timestamp > payload["iat"] + get_auth_data().refresh_token_ttl.total_seconds() - 1
+    assert timedelta(seconds=exp_timestamp) > timedelta(seconds=payload["iat"]) + settings.REFRESH_TOKEN_TTL - timedelta(seconds=1)
 
 
 def test_sign_token_with_ttl(jwt_auth, mock_env):
     """Проверяет генерацию токена с указанным TTL."""
     subject = "test-user"
     custom_ttl = timedelta(minutes=15)
-    token = jwt_auth._JWTAuth__sign_token(type=TokenType.ACCESS.value, subject=subject, ttl=custom_ttl)
-    payload = jwt.decode(token, get_auth_data().secret, algorithms=[get_auth_data().algorithm])
+    token = jwt_auth._JWTAuth__sign_token(type_token=TokenType.ACCESS, subject=subject, ttl=custom_ttl)
+    payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
     assert payload["sub"] == subject
     assert payload["type"] == TokenType.ACCESS.value
     assert "exp" in payload
-    assert payload["exp"] == payload["nbf"] + int(custom_ttl.total_seconds())
-
-
-def test_sign_token_without_ttl(jwt_auth, mock_env):
-    """Проверяет генерацию токена без TTL (бесконечный)."""
-    subject = "test-user"
-    token = jwt_auth._JWTAuth__sign_token(type=TokenType.ACCESS.value, subject=subject)
-    payload = jwt.decode(token, get_auth_data().secret, algorithms=[get_auth_data().algorithm],
-                         options={"verify_exp": False})
-    assert payload["sub"] == subject
-    assert payload["type"] == TokenType.ACCESS.value
-    assert "exp" not in payload
+    assert timedelta(seconds=payload["exp"]) == timedelta(seconds=payload["nbf"]) + custom_ttl
 
 
 def test_verify_token_valid(jwt_auth, mock_env):
@@ -105,7 +84,7 @@ def test_get_jti(jwt_auth, mock_env):
     subject = "test-user"
     token = jwt_auth.generate_access_token(subject)
     jti = jwt_auth.get_jti(token)
-    payload = jwt.decode(token, get_auth_data().secret, algorithms=[get_auth_data().algorithm])
+    payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
     assert jti == payload["jti"]
     assert isinstance(jti, str)
 
@@ -123,7 +102,7 @@ def test_get_exp(jwt_auth, mock_env):
     subject = "test-user"
     token = jwt_auth.generate_access_token(subject)
     exp = jwt_auth.get_exp(token)
-    payload = jwt.decode(token, get_auth_data().secret, algorithms=[get_auth_data().algorithm])
+    payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
     assert exp == payload["exp"]
     assert isinstance(exp, int)
 

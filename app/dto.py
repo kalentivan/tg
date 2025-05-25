@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from core.types import ID
 
@@ -29,9 +29,7 @@ class ChatIdMems(ChatDTO):
     id: ID
     members: List[UserDTO] = []
 
-    class Config:
-        orm_mode = True
-
+    model_config = ConfigDict(from_attributes=True)  # Замените orm_mode на from_attributes
 
 class MessageDTO(BaseModel):
     text: str
@@ -47,8 +45,7 @@ class MessageDTO(MessageChIdDTO):
     timestamp_str: str
     is_read: bool
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)  # Замените orm_mode на from_attributes
 
 
 class MessageHistoryDTO(BaseModel):

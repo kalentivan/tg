@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, Uuid, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,9 +33,9 @@ class IssuedJWTToken(Base):
 
     jti = Column(Uuid, primary_key=True)
     user_id = Column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    device_id = Column(String, nullable=False)
+    device_id = Column(String, nullable=False)  # для авторизации с нескольких устройств надо хранить ID устройства
     revoked = Column(Boolean, default=False)
-    expired_time = Column(Integer, default=0)
+    expired_time = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC) + timedelta(hours=1))
 
     @property
     def fields(self):
@@ -83,7 +83,7 @@ class Message(BaseId):
     chat_id = Column(Uuid, ForeignKey("chats.id"))
     sender_id = Column(Uuid, ForeignKey("users.id"))
     text = Column(Text)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime(timezone=True), default=datetime.now(UTC))
     is_read = Column(Boolean, default=False)
 
     chat = relationship("Chat", back_populates="messages")
@@ -110,7 +110,7 @@ class MessageRead(BaseId):
 
     message_id = Column(Uuid, ForeignKey("messages.id"), primary_key=True)
     user_id = Column(Uuid, ForeignKey("users.id"), primary_key=True)
-    read_at = Column(DateTime, default=datetime.utcnow)
+    read_at = Column(DateTime(timezone=True), default=datetime.now(UTC))
 
     message = relationship("Message", back_populates="read_by")
     user = relationship("User")
