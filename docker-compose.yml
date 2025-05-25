@@ -1,35 +1,60 @@
-version: '3.8'
-
 services:
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+  back:
+    image: tg-backend
+    container_name: tg-backend
+    restart: always
+    env_file:
+      - .env  # Загружаем переменные из .env
     ports:
       - "8000:8000"
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://user:password@db:5432/chat_db
-    depends_on:
-      - db
     volumes:
-      - .:/app
+      - ./logs:/app/logs
+      - ./stat:/app/stat
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
     networks:
-      - chat_network
+      - tg-net
 
   db:
-    image: postgres:15
-    environment:
-      - POSTGRES_USER=user
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=chat_db
+    image: postgres:16
+    container_name: tg-pgsql
+    restart: always
+    env_file:
+      - .env  # Загружаем переменные из .env
+    # ports:
+    #   - 5432:5432
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ./pgcheck:/var/lib/postgresql/data
+      - /log:/log
+      - ./backup.sql:/docker-entrypoint-initdb.d/backup.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres || exit 1"]
+      interval: 10s    # как часто проверять
+      timeout: 5s      # максимальное время ожидания ответа
+      retries: 5       # сколько раз подряд должно быть ОК
+      start_period: 30s # сколько времени дать на начальную загрузку
     networks:
-      - chat_network
+      - tg-net
 
-volumes:
-  postgres_data:
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.23.1-p3
+    container_name: tg-pgbouncer
+    restart: always
+    env_file:
+      - .env  # Загружаем переменные из .env
+    depends_on:
+      - db
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -h localhost -p 5432 || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - tg-net
 
 networks:
-  chat_network:
-    driver: bridge
+  tg-net:
+    name: tg-net
+    external: true

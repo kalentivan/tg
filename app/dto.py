@@ -21,11 +21,11 @@ class ChatDTO(BaseModel):
     admin_id: str = ""
 
 
-class ChatIds(ChatDTO):
+class ChatIdsDTO(ChatDTO):
     member_ids: List[ID] = []  # Для групповых чатов
 
 
-class Chat(ChatDTO):
+class ChatIdMems(ChatDTO):
     id: ID
     members: List[UserDTO] = []
 
@@ -33,19 +33,18 @@ class Chat(ChatDTO):
         orm_mode = True
 
 
-class MessageBase(BaseModel):
+class MessageDTO(BaseModel):
     text: str
 
 
-class MessageCreate(MessageBase):
+class MessageChIdDTO(MessageDTO):
     chat_id: ID
 
 
-class Message(MessageBase):
+class MessageDTO(MessageChIdDTO):
     id: ID
-    chat_id: ID
     sender_id: ID
-    timestamp: str
+    timestamp_str: str
     is_read: bool
 
     class Config:
@@ -53,7 +52,7 @@ class Message(MessageBase):
 
 
 class MessageHistoryDTO(BaseModel):
-    messages: List[Message]
+    messages: List[MessageDTO]
     total: int
 
 

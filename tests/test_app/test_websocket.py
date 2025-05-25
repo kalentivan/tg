@@ -41,10 +41,10 @@ async def test_websocket_message_read_personal(client, auth_headers, personal_ch
     )
     # Подключаемся от имени второго пользователя
     auth_service = AuthService()
-    token = auth_service._jwt_auth.generate_access_token({"sub": str(test_user2.id)})
+    token = auth_service._jwt_auth.generate_access_token(subject=str(test_user2.id))
     headers = {"Authorization": f"Bearer {token}"}
     with client.websocket_connect(f"/ws/{personal_chat.id}", headers=headers) as ws:
-        await ws.send_json({
+        ws.send_json({
             "action": "message_read",
             "message_id": str(message.id)
         })
@@ -64,10 +64,10 @@ async def test_websocket_message_read_group(client, auth_headers, group_chat, te
     )
     # Подключаемся от имени второго пользователя
     auth_service = AuthService()
-    token = auth_service._jwt_auth.generate_access_token({"sub": str(test_user2.id)})
+    token = auth_service._jwt_auth.generate_access_token(subject=str(test_user2.id))
     headers = {"Authorization": f"Bearer {token}"}
     with client.websocket_connect(f"/ws/{group_chat.id}", headers=headers) as ws:
-        await ws.send_json({
+        ws.send_json({
             "action": "message_read",
             "message_id": str(message.id)
         })
