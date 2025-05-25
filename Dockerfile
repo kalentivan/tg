@@ -16,6 +16,8 @@ venv/bin/pip install --upgrade pip &&  \
 venv/bin/pip install -r requirements.txt
 
 COPY . .
+# ✅ Добавь эту строку:
+RUN chmod +x /app/start.sh
 
 ENV PYTHONPATH=/app
 
