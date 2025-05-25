@@ -1,7 +1,7 @@
 services:
   back:
-    image: tg-backend
-    container_name: tg-backend
+    image: tg-back
+    container_name: tg-back
     restart: always
     env_file:
       - .env  # Загружаем переменные из .env
