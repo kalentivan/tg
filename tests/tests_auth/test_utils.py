@@ -1,7 +1,9 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import jwt
 import pytest
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 from starlette.exceptions import HTTPException
@@ -74,11 +76,13 @@ async def valid_token(jwt_auth, test_user_success, db_session):
         payload=payload,
         ttl=settings.ACCESS_TOKEN_TTL
     )
+    await db_session.execute(
+        delete(IssuedJWTToken).where(IssuedJWTToken.user_id == test_user_success.id)
+    )
     token_obj = IssuedJWTToken(
         user_id=test_user_success.id,
         jti=jti,
         device_id="revoked-device-id",
-        revoked=True,
         expired_time=datetime.now(timezone.utc) + settings.ACCESS_TOKEN_TTL
     )
     db_session.add(token_obj)
@@ -98,14 +102,18 @@ async def revoked_token(jwt_auth, test_user_revoke, db_session):
         payload=payload,
         ttl=settings.ACCESS_TOKEN_TTL
     )
-    token_obj = IssuedJWTToken(
+    await db_session.execute(
+        delete(IssuedJWTToken).where(IssuedJWTToken.user_id == test_user_revoke.id)
+    )
+    await db_session.commit()
+    obj = IssuedJWTToken(
         user_id=test_user_revoke.id,
         jti=jti,
         device_id="revoked-device-id",
         revoked=True,
         expired_time=datetime.now(timezone.utc) + settings.ACCESS_TOKEN_TTL
     )
-    db_session.add(token_obj)
+    db_session.add(obj)
     await db_session.commit()
     return f"Bearer {token}"
 
@@ -134,7 +142,8 @@ async def test_user_token(db_session: AsyncSession):
 async def test_user_revoke(db_session: AsyncSession):
     """Фикстура для создания тестового пользователя."""
     user_id = uuid.UUID("550e8400-e29b-41d4-a716-446655d4dd00")
-    user = User(id=user_id, username="test_user_token", email="test_user_revoke@example.com", password="hashed_password")
+    user = User(id=user_id, username="test_user_token", email="test_user_revoke@example.com",
+                password="hashed_password")
     db_session.add(user)
     await db_session.commit()
     return user
@@ -144,7 +153,8 @@ async def test_user_revoke(db_session: AsyncSession):
 async def test_user_success(db_session: AsyncSession):
     """Фикстура для создания тестового пользователя."""
     user_id = uuid.uuid4()
-    user = User(id=user_id, username="test_user_token", email="test_user_success@example.com", password="hashed_password")
+    user = User(id=user_id, username="test_user_token", email="test_user_success@example.com",
+                password="hashed_password")
     db_session.add(user)
     await db_session.commit()
     return user
@@ -239,12 +249,14 @@ def test_try_to_get_clear_token_no_bearer():
 
 
 @pytest.mark.asyncio
-async def test_check_access_token_success(mock_request, jwt_auth, valid_token, db_session: AsyncSession, test_user_success):
+async def test_check_access_token_success(mock_request, jwt_auth, valid_token, db_session: AsyncSession,
+                                          test_user_success):
     """Проверяет успешную проверку access токена."""
-    mock_request.headers['Authorization'] = valid_token
+    token = str(valid_token)
+    mock_request.headers['Authorization'] = token
     result = await check_access_token(mock_request, session=db_session)
-    assert result == valid_token
-    assert mock_request.state.user == test_user
+    assert result == token
+    assert mock_request.state.user == test_user_success
     assert mock_request.state.device_id == "test-device-id"
 
 
@@ -261,7 +273,8 @@ async def test_check_access_token_invalid_token(mock_request, db_session: AsyncS
 @pytest.mark.asyncio
 async def test_check_access_token_revoked(mock_request, revoked_token, db_session: AsyncSession):
     """Проверяет, что отозванный токен вызывает 401."""
-    mock_request.headers['Authorization'] = revoked_token
+    token = str(revoked_token)
+    mock_request.headers['Authorization'] = token
     with pytest.raises(HTTPException) as exc:
         await check_access_token(mock_request, session=db_session)
     assert exc.value.status_code == status.HTTP_401_UNAUTHORIZED

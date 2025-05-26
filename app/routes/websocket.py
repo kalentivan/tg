@@ -44,6 +44,7 @@ async def websocket_chat(
 
     except WebSocketDisconnect:
         connection_manager.disconnect(websocket, chat_id, user.id)
+        print("WebSocketDisconnect!!!!")
     finally:
         await session.close()  # Явное закрытие сессии на случай прерывания
 

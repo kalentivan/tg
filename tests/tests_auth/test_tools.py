@@ -18,7 +18,7 @@ def jwt_auth():
 @pytest.fixture
 def valid_token(jwt_auth):
     """Фикстура для создания валидного токена."""
-    payload = {"sub": "test-user", "type": "access", "jti": "test-jti"}
+    payload = {"sub": "test-user", "type": "access", "jti": str(uuid.uuid4())}
     token = jwt_auth._JWTAuth__sign_token(
         type_token=TokenType.ACCESS,
         subject="test-user",

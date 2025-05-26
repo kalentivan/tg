@@ -1,13 +1,17 @@
 import pytest
+from httpx import ASGITransport, AsyncClient
 
 from app.models.models import GroupMember, Message, MessageRead
+from main import app
 
 
 @pytest.mark.asyncio
 async def test_chat_history_with_data(client, auth_headers, test_data, db_session):
     # Берем случайный чат из тестовых данных
     chat = test_data["personal_chats"][0]
-    response = client.post(f"/chat/{chat.id}/history/", headers=auth_headers)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        response = await ac.post(f"/chat/{chat.id}/history/", headers=auth_headers)
     assert response.status_code == 200
     answer = response.json()
     messages, total = answer["messages"], answer["total"]

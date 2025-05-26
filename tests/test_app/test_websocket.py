@@ -28,11 +28,15 @@
 #             "text": "Test message",
 #             "uuid": str(message_uuid)
 #         })
-#         response = ws.receive_json()
+#         # Проверяем, что is_read обновлено
+#         await asyncio.sleep(0.1)  # Даём время на обработку
+#         response = await ws.receive_json()
 #         assert response["text"] == "Test message"
-#         message = await Message.first(id=message_uuid, session=db_session)
-#         assert message is not None
-#         assert message.text == "Test message"
+#         # Создаём новую сессию для проверки, чтобы избежать кэширования
+#         async with AsyncSession(db_engine) as check_session:
+#             message = await Message.first(id=message_uuid, session=check_session)
+#             assert message is not None
+#             assert message.text == "Test message"
 #
 #
 # @pytest.mark.asyncio

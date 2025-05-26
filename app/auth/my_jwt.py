@@ -66,7 +66,7 @@ class JWTAuth:
             iss='tg',
             sub=subject,
             type=type_token.value,
-            jti=self.__generate_jti(),
+            jti=self.__generate_jti() if not payload.get('jti') else payload.get('jti'),
             iat=c_time,
             nbf=payload['nbf'] if payload.get('nbf') else c_time,
         )

@@ -90,7 +90,7 @@ async def check_access_token(request: Request,
     authorization_header = request.headers.get('Authorization')
     clear_token = __try_to_get_clear_token(authorization_header=authorization_header)
     try:
-        payload = jwt.decode(jwt=clear_token, key=settings.SECRET_KEY, algorithms=[settings.ALGORITHM],
+        payload = jwt.decode(jwt=clear_token, key=settings.SECRET_KEY, algorithms=settings.ALGORITHM,
                              options={"verify_exp": False})
         if payload['type'] != TokenType.ACCESS.value:
             raise HTTPException(
