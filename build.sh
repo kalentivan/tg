@@ -109,6 +109,34 @@ docker network create "$NET" 2>/dev/null || echo "Сеть уже существ
 echo "📂 Создание директорий..."
 mkdir -p logs stat pgdata || error_exit "Не удалось создать директории"
 
+# Путь к файлу .env
+ENV_FILE=".env"
+
+# Проверяем, существует ли файл .env
+if [ ! -f "$ENV_FILE" ]; then
+    echo "Файл .env не найден!"
+    exit 1
+fi
+
+# Ищем переменную TG_DB_HOST в файле
+if grep -q '^TG_DB_HOST=' "$ENV_FILE"; then
+    # Получаем текущее значение
+    current_value=$(grep '^TG_DB_HOST=' "$ENV_FILE" | cut -d '=' -f2 | tr -d '"')
+
+    # Если значение не pgbouncer, меняем его
+    if [ "$current_value" != "pgbouncer" ]; then
+        # Заменяем значение в файле
+        sed -i 's/^TG_DB_HOST=.*/TG_DB_HOST="pgbouncer"/' "$ENV_FILE"
+        echo "Значение TG_DB_HOST изменено с '$current_value' на 'pgbouncer'"
+    else
+        echo "TG_DB_HOST уже установлен в 'pgbouncer', изменения не требуются"
+    fi
+else
+    # Если переменная не найдена, добавляем ее
+    echo 'TG_DB_HOST="pgbouncer"' >> "$ENV_FILE"
+    echo "Переменная TG_DB_HOST добавлена со значением 'pgbouncer'"
+fi
+
 # Сборка
 echo "🔨 Сборка Docker-образов..."
  docker build -t ${IMAGE} . || error_exit "Не удалось собрать Docker-образы"
