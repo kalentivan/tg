@@ -1,42 +1,54 @@
-Chat App
+Описание проекта
+Разрабатываемый продукт — мессенджер с возможностью обмена сообщениями и создания групповых чатов, аналогичный Telegram.
 
-A simple chat application built with FastAPI, WebSocket, and PostgreSQL.
+Кандидат должен продемонстрировать уверенные знания в:
+- Python (FastAPI, asyncio);
+- SQLAlchemy (ORM, асинхронные операции);
+- Веб-сокетах (реализация real-time взаимодействия);
+- Docker и Docker Compose (развертывание сервиса в контейнерах);
+- Предотвращении дублирования сообщений при параллельной отправке.
+Тестовое задание
+Задача: Разработать мини-приложение, реализующее функционал чата с возможностью отправки сообщений, их хранения в базе данных и создания групповых чатов.
+Функциональные требования
+1. Чат (WebSocket)
+- Реализовать подключение пользователей через WebSocket.
+- Обмен текстовыми сообщениями между пользователями в реальном времени.
+- Возможность создания групповых чатов.
+- Сообщения должны сохраняться в PostgreSQL.
+- Каждое сообщение должно содержать:
+  - ID сообщения
+  - ID чата
+  - ID отправителя
+  - Текст
+  - Время отправки
+  - Признак прочитанного сообщения
+- Реализовать обработку статуса "прочитано" (отправитель получает уведомление, когда сообщение прочитано получателем или всеми участниками группы).
+- Предотвращение дублирования сообщений при параллельной отправке.
+2. История сообщений
+- Реализовать REST-эндпоинт для получения истории сообщений по ID чата:
+  - Метод: GET /history/{chat_id}
+  - Параметры запроса: chat_id — ID чата (обязательный параметр), limit и offset для пагинации (опционально).
+  - Сообщения должны быть отсортированы по времени отправки (по возрастанию).
+Технические требования
+1. Backend:
+- FastAPI для реализации REST API и WebSocket.
+- Асинхронная работа через asyncio.
+- PostgreSQL как основная база данных.
+- SQLAlchemy (использование ORM, асинхронные запросы).
+- Контейнеризация (Docker, Docker Compose).
+- Автоматическая документация (Swagger / OpenAPI).
+2. Структура базы данных:
+- users (id, имя, email, пароль).
+- chats (id, название, тип: личный/групповой).
+- groups (id, название, создатель, список участников).
+- messages (id, chat_id, sender_id, text, timestamp, прочитано).
+Ожидаемый результат
+1. Репозиторий на GitHub с:
+- Исходным кодом проекта.
+- Файлом README.md, описывающим: запуск проекта через Docker, примеры API-запросов, команду для создания тестовых данных.
+2. Рабочее приложение, запускаемое через Docker.
+3. Соответствие всем указанным требованиям.
 
-Prerequisites
-
-- Docker
-- Docker Compose
-
-Setup and Running
-
-1. Clone the repository:
-
-   git clone &lt;repository_url&gt;\
-   cd chat_app
-2. Create a `.env` file based on `.env.example`:
-
-   cp .env.example .env
-3. Build and run the application:
-
-   docker-compose up --build
-4. Access the API at `http://localhost:8000` and Swagger UI at `http://localhost:8000/docs`.
-
-API Examples
-
-- **Root endpoint**: `GET /`
-
-  curl http://localhost:8000
-
-  Response: `{"message": "Chat App is running"}`
-
-Creating Test Data
-
-(TBD: Will be added after implementing database seeding)
-
-Project Structure
-
-- `app/` - Main application code
-- `app/models/` - SQLAlchemy models
-- `app/routers/` - API and WebSocket routes
-- `app/services/` - Business logic
-- `app/repositories/` - Database operations
+Запуск - выполнить скрипт start.sh
+Он установит докер, если нет, установит проект и запустит его.
+Так же проект развернут на http://87.228.78.162:8000/docs
