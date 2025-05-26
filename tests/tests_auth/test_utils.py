@@ -9,7 +9,7 @@ from starlette import status
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 
-from app.auth.config import settings
+from app.config import settings
 from app.auth.my_jwt import JWTAuth
 from app.auth.types import TokenType
 from app.auth.utils import __try_to_get_clear_token, check_access_token, check_revoked, convert_to_timestamp, \

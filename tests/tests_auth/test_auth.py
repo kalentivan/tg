@@ -4,7 +4,7 @@ import pytest
 from starlette.exceptions import HTTPException
 from starlette import status
 from jose import jwt
-from app.auth.config import settings
+from app.config import settings
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.auth import get_current_user, get_current_ws_user, get_admin_user
 from app.auth.password import get_password_hash

@@ -47,11 +47,9 @@ class Chat(BaseId):
 
     name = Column(String, nullable=True)
     is_group = Column(Boolean, default=False)
-    admin_id = Column(Uuid, ForeignKey("users.id"))
 
     messages = relationship("Message", back_populates="chat", cascade="all, delete-orphan")
     members = relationship("User", secondary="group_members", back_populates="chats")
-    admin = relationship("User", foreign_keys=[admin_id])
 
     async def delete(self, session: AsyncSession = None):
         """
@@ -63,18 +61,19 @@ class Chat(BaseId):
 
     @property
     def fields(self):
-        return super().fields + ("name", "is_group", "admin_id")
+        return super().fields + ("name", "is_group")
 
 
-class GroupMember(BaseId):
+class GroupMember(Base):
     __tablename__ = "group_members"
 
     user_id = Column(Uuid, ForeignKey("users.id"), primary_key=True)
     chat_id = Column(Uuid, ForeignKey("chats.id"), primary_key=True)
+    is_admin = Column(Boolean, default=False)
 
     @property
     def fields(self):
-        return super().fields + ("user_id", "chat_id")
+        return super().fields + ("user_id", "chat_id", "is_admin")
 
 
 class Message(BaseId):
@@ -105,7 +104,7 @@ class Message(BaseId):
         return super().fields + ("chat_id", "sender_id", "text", "timestamp_str", "is_read")
 
 
-class MessageRead(BaseId):
+class MessageRead(Base):
     __tablename__ = "message_reads"
 
     message_id = Column(Uuid, ForeignKey("messages.id"), primary_key=True)

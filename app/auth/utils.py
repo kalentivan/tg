@@ -10,7 +10,7 @@ from starlette import status
 from starlette.exceptions import HTTPException
 from datetime import timedelta
 
-from app.auth.config import settings
+from app.config import settings
 from app.auth.types import TokenType
 from app.models.models import IssuedJWTToken
 from app.models.models import User

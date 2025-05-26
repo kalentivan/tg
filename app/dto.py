@@ -6,12 +6,12 @@ from core.types import ID
 
 
 class UserDTO(BaseModel):
-    username: str | None
-    email: str | None
+    username: str | None = ""
+    email: str | None = ""
 
 
 class UserPwdDTO(UserDTO):
-    password: str | None
+    password: str | None = ""
 
 
 class ChatDTO(BaseModel):
@@ -63,6 +63,10 @@ class MemberAddDTO(BaseModel):
     user_id: ID
 
 
+class MembersIdsDTO(BaseModel):
+    member_ids: List[ID] = None  # Список ID пользователей для группового чата
+
+
 class TokensDTO(BaseModel):
     user_id: ID = 0
     role: str = ""
@@ -70,4 +74,9 @@ class TokensDTO(BaseModel):
     refresh_token: str | None = ""
     access_ttl: int = 0
     refresh_ttl: int = 0
+
+
+class RTokenDTO(BaseModel):
+    refresh_token: str | None = ""
+
 

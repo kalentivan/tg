@@ -1,3 +1,4 @@
+import asyncio
 import os
 import random
 import uuid
@@ -53,6 +54,13 @@ async def override_get_db():
             await session.rollback()
             raise
 
+#
+# @pytest.fixture(scope="session")
+# def event_loop():
+#     loop = asyncio.get_event_loop_policy().new_event_loop()
+#     yield loop
+#     loop.close()
+
 
 app.dependency_overrides[get_db] = override_get_db
 
@@ -76,9 +84,10 @@ async def db_session(db_engine):
         yield session
 
 
-@pytest.fixture
-def client(db_engine):
-    return TestClient(app)
+@pytest.fixture(scope="session")
+def client():
+    with TestClient(app) as c:
+        yield c
 
 
 @pytest.fixture
@@ -106,6 +115,22 @@ async def test_user2(db_session):
     )
     auth_service = AuthService()
     user, tokens = await auth_service.register(user_data, session=db_session)
+    await db_session.refresh(user)
+    return user
+
+
+@pytest.fixture
+async def test_user3(db_session):
+    if user := await User.first(email="test3@example.com", session=db_session):
+        return user
+    user_data = UserPwdDTO(
+        username="testuser3",
+        email="test3@example.com",
+        password="test123"
+    )
+    auth_service = AuthService()
+    user, tokens = await auth_service.register(user_data, session=db_session)
+    await db_session.refresh(user)
     return user
 
 
@@ -122,11 +147,11 @@ async def personal_chat(db_session, test_user, test_user2):
     chat = await Chat.create(
         name=None,
         is_group=False,
-        admin_id=test_user.id,
         session=db_session
     )
-    await GroupMember.create(user_id=test_user.id, chat_id=chat.id, session=db_session)
-    await GroupMember.create(user_id=test_user2.id, chat_id=chat.id, session=db_session)
+    db_session.add(GroupMember(user_id=test_user.id, chat_id=chat.id, is_admin=True))
+    db_session.add(GroupMember(user_id=test_user2.id, chat_id=chat.id))
+    await db_session.commit()
     return chat
 
 
@@ -136,14 +161,15 @@ async def group_chat(db_session, test_user, test_user2):
         chat = await Chat.create(
             name="Test Group",
             is_group=True,
-            admin_id=test_user.id,
             session=db_session
         )
     chat.is_group = True
-    chat.admin_id = test_user.id
-    await chat.save(update_fields=["is_group", "admin_id"], session=db_session)
-    await GroupMember.create(user_id=test_user.id, chat_id=chat.id, session=db_session)
-    await GroupMember.create(user_id=test_user2.id, chat_id=chat.id, session=db_session)
+    await chat.save(update_fields=["is_group"], session=db_session)
+    if not await GroupMember.first(user_id=test_user.id, chat_id=chat.id, session=db_session):
+        db_session.add(GroupMember(user_id=test_user.id, chat_id=chat.id, is_admin=True))
+    if not await GroupMember.first(user_id=test_user2.id, chat_id=chat.id, session=db_session):
+        db_session.add(GroupMember(user_id=test_user2.id, chat_id=chat.id, is_admin=False))
+    await db_session.commit()
     return chat
 
 
@@ -179,11 +205,11 @@ async def test_data(db_session):
         chat = await Chat.create(
             name=None,
             is_group=False,
-            admin_id=user1.id,
             session=db_session
         )
-        await GroupMember.create(user_id=user1.id, chat_id=chat.id, session=db_session)
-        await GroupMember.create(user_id=user2.id, chat_id=chat.id, session=db_session)
+        db_session.add(GroupMember(user_id=user1.id, is_admin=True, chat_id=chat.id))
+        db_session.add(GroupMember(user_id=user2.id, chat_id=chat.id))
+        await db_session.commit()
         personal_chats.append(chat)
 
     # Создаем 3 групповых чата
@@ -194,13 +220,15 @@ async def test_data(db_session):
             chat = await Chat.create(
                 name=f"Group Chat {i}",
                 is_group=True,
-                admin_id=random.choice(users).id,
                 session=db_session
             )
         num_members = random.randint(3, 5)
         members = random.sample(users, num_members)
+        is_admin = True
         for member in members:
-            await GroupMember.create(user_id=member.id, chat_id=chat.id, session=db_session)
+            db_session.add(GroupMember(user_id=member.id, chat_id=chat.id, is_admin=is_admin))
+            is_admin = False
+        await db_session.commit()
         group_chats.append(chat)
         group_chat_members[chat.id] = len(await GroupMember.list(chat_id=chat.id, session=db_session))
 
@@ -238,11 +266,12 @@ async def test_data(db_session):
                 if eligible_members and num_readers > 0:
                     readers = random.sample(eligible_members, num_readers)
                     for reader in readers:
-                        await MessageRead.create(
+                        obj = MessageRead(
                             message_id=message.id,
                             user_id=reader.user_id,
-                            session=db_session
                         )
+                        await db_session.add(obj)
+                    await db_session.commit()
                     messages_with_reads[chat.id].append(message.id)
 
     return {

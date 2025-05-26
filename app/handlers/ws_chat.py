@@ -29,16 +29,19 @@ async def send_message(websocket, session, user: User, data: dict, chat: Chat):
         )
         await session.commit()  # Явно фиксируем изменения
     except HTTPException as e:
+        print(f"HTTPException {e=}")
         if e.status_code == status.HTTP_409_CONFLICT:
             await websocket.send_json({"error": "Сообщение уже существует"})
             return
         raise
     except Exception as e:
+        print(f"Exception {e=}")
         await session.rollback()  # Откат при других ошибках
         raise
     try:
         await connection_manager.send_message(message.to_dict(), chat.id)
     except Exception as e:
+        print(f"connection_manager {e=}")
         await session.rollback()  # Откат, если отправка провалилась
         raise
 
@@ -48,13 +51,11 @@ async def read_message(websocket, session, user: User, data: dict, chat: Chat) -
     if not message_id:
         await websocket.send_json({"error": "Требуется поле message_id"})
         return False
-
     try:
         message = await Message.get_or_404(id=message_id, session=session)
         if message.chat_id != chat.id:
             await websocket.send_json({"error": "Сообщение не принадлежит этому чату"})
             return False
-
         if not chat.is_group:
             return await read_in_person_chat(session, user, message, chat.id)
         return await read_in_group_chat(session, user, message, chat)
@@ -69,6 +70,7 @@ async def read_in_person_chat(session, user: User, message: Message, chat_id: UU
             await message.save(session=session, update_fields=["is_read"])
             await session.commit()
         except Exception as e:
+            print(f"read_in_person_chat save {e=}")
             await session.rollback()
             raise
 
@@ -103,6 +105,7 @@ async def read_in_group_chat(session, user: User, message: Message, chat: Chat):
             )
             await session.commit()
         except Exception as e:
+            print(f"read_in_group_chat save {e=}")
             await session.rollback()
             raise
 

@@ -7,8 +7,8 @@ from starlette.exceptions import HTTPException
 from starlette.status import HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
 
 from app.auth.auth import get_current_ws_user
-from app.database import AsyncSessionLocal, get_db
-from app.handlers.chat import read_message, send_message
+from app.database import get_db
+from app.handlers.ws_chat import read_message, send_message
 from app.models.models import Chat, GroupMember, User
 from app.services.websocket import connection_manager
 from app.tools import validate_uuid
@@ -43,10 +43,15 @@ async def websocket_chat(
                     await read_message(websocket, session, user, data, chat)
 
     except WebSocketDisconnect:
+        print(f"WebSocket disconnected for user {user.id} in chat {chat_id}")
         connection_manager.disconnect(websocket, chat_id, user.id)
-        print("WebSocketDisconnect!!!!")
+    except Exception as e:
+        print(f"Unexpected error in WebSocket: {e}")
+        connection_manager.disconnect(websocket, chat_id, user.id)
     finally:
-        await session.close()  # Явное закрытие сессии на случай прерывания
+        # Убедимся, что сессия закрывается корректно
+        await session.commit()  # Завершаем транзакцию, если есть незавершённые изменения
+        await session.close()
 
 
 async def get_chat_with_membership_check(chat_id: uuid.UUID,

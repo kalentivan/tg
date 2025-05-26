@@ -3,6 +3,7 @@ import uuid
 import pytest
 from fastapi import status
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.exc import IntegrityError
 
 from main import app  # твое приложение
 from app.auth.service import AuthService
@@ -22,7 +23,6 @@ async def test_create_personal_chat(test_user, test_user2, auth_headers, db_sess
     assert response.status_code == 200
     data = response.json()
     assert data["is_group"] is False
-    assert data["admin_id"] == str(test_user.id)
 
     # Проверяем участников
     chat = await Chat.get_or_404(id=validate_uuid(data["id"]), session=db_session)
@@ -104,15 +104,71 @@ async def test_delete_group_chat_by_non_admin(client, group_chat, test_user2, db
 
 
 @pytest.mark.asyncio
-async def test_add_member_to_group_chat(client, auth_headers, group_chat, test_user2, db_session):
-    member_data = MemberAddDTO(user_id=str(test_user2.id))
+async def test_add_new_member_to_group_chat(client, auth_headers, group_chat, test_user, test_user3, db_session):
+    """Проверяет успешное добавление нового пользователя в групповой чат."""
+    # Убедимся, что test_user — участник чата
+    user_id = str(test_user3.id)
+    group_chat_id = str(group_chat.id)
+    try:
+        db_session.add(GroupMember(user_id=test_user.id, chat_id=group_chat.id))
+        await db_session.commit()
+    except IntegrityError as ex:
+        await db_session.rollback()
+    except Exception as ex:
+        await db_session.rollback()
+    # Добавляем test_user2 (нового пользователя)
+    member_data = MemberAddDTO(user_id=user_id)
+    transport = ASGITransport(app=app)
+    cur_members = await GroupMember.list(session=db_session, chat_id=group_chat_id)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        response = await ac.post(
+            f"/chat/{group_chat_id}/members/",
+            json=member_data.model_dump(),
+            headers=auth_headers
+        )
+    assert response.status_code == 200
+    members = await GroupMember.list(session=db_session, chat_id=group_chat_id)
+    member_ids = [str(m.user_id) for m in members]
+    assert user_id in member_ids
+    assert len(members) == len(cur_members) + 1  # test_user и test_user2
+
+
+@pytest.mark.asyncio
+async def test_add_existing_member_to_group_chat(client, auth_headers, group_chat, test_user, test_user2, db_session):
+    """Проверяет попытку добавления уже существующего пользователя в групповой чат."""
+    # Убедимся, что test_user — участник чата
+    user_1_id = str(test_user.id)
+    user_2_id = str(test_user2.id)
+    group_chat_id = str(group_chat.id)
+    try:
+        db_session.add(GroupMember(user_id=user_1_id, chat_id=group_chat.id))
+        await db_session.commit()
+    except IntegrityError as ex:
+        await db_session.rollback()
+    except Exception as ex:
+        await db_session.rollback()
+    # Добавляем test_user2 в чат
+    try:
+        db_session.add(GroupMember(user_id=user_2_id, chat_id=group_chat.id))
+        await db_session.commit()
+    except IntegrityError as ex:
+        await db_session.rollback()
+    except Exception as ex:
+        await db_session.rollback()
+
+    # Пытаемся добавить test_user2 ещё раз
+    member_data = MemberAddDTO(user_id=user_2_id)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        response = await ac.post(f"/chat/{group_chat.id}/members/", json=member_data.model_dump(), headers=auth_headers)
-    assert response.status_code == 200
-    members = await GroupMember.list(session=db_session, chat_id=group_chat.id)
-    member_ids = [str(m.user_id) for m in members]
-    assert str(test_user2.id) in member_ids
+        response = await ac.post(
+            f"/chat/{group_chat_id}/members/",
+            json=member_data.model_dump(),
+            headers=auth_headers
+        )
+    assert response.status_code == 400
+    assert "Пользователь уже в чате" in response.json()["detail"]
+    members = await GroupMember.list(session=db_session, chat_id=group_chat_id)
+    assert len(members) == 2  # Количество участников не изменилось
 
 
 @pytest.mark.asyncio
@@ -120,7 +176,8 @@ async def test_add_member_to_personal_chat(client, auth_headers, personal_chat, 
     member_data = MemberAddDTO(user_id=str(test_user2.id))
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        response = await ac.post(f"/chat/{personal_chat.id}/members/", json=member_data.model_dump(), headers=auth_headers)
+        response = await ac.post(f"/chat/{personal_chat.id}/members/", json=member_data.model_dump(),
+                                 headers=auth_headers)
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert "групповой чат" in response.json()["detail"]
 
@@ -143,3 +200,100 @@ async def test_chat_history(client, auth_headers, personal_chat, test_user, db_s
     assert total == 1
     assert len(messages) == 1
     assert messages[0]["text"] == "Hello"
+
+
+@pytest.mark.asyncio
+async def test_remove_members_from_group_chat_success(
+        client, auth_headers, group_chat, test_user, test_user2, db_session
+):
+    note = await GroupMember.first(chat_id=group_chat.id, user_id=test_user.id, session=db_session)
+    note.is_admin = True
+    db_session.add(note)
+    await db_session.commit()
+
+    member_ids = [str(test_user2.id)]
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        response = await ac.patch(
+            f"/chat/{group_chat.id}/members/",
+            json={"member_ids": member_ids},
+            headers=auth_headers
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["user_id"] == str(test_user2.id)
+
+    members = await GroupMember.list(session=db_session, chat_id=group_chat.id)
+    assert len(members) == 1  # Остался только админ
+    assert str(test_user.id) in [str(m.user_id) for m in members]
+
+
+@pytest.mark.asyncio
+async def test_remove_members_from_personal_chat(
+        client, auth_headers, personal_chat, test_user, test_user2
+):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        response = await ac.patch(
+            f"/chat/{personal_chat.id}/members/",
+            json={"member_ids": [str(test_user2.id)]},
+            headers=auth_headers
+        )
+    assert response.status_code == 400
+    assert "Нельзя удалить участников из личного чата" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_remove_members_by_non_admin(
+        client, group_chat, test_user, test_user2, db_session
+):
+    auth_service = AuthService()
+    token = auth_service._jwt_auth.generate_access_token(subject=str(test_user2.id))
+    headers = {"Authorization": f"Bearer {token}"}
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        response = await ac.patch(
+            f"/chat/{group_chat.id}/members/",
+            json={"member_ids": [str(test_user.id)]},
+            headers=headers
+        )
+    assert response.status_code == 403
+    assert "Только администратор чата может удалять участников" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_remove_nonexistent_member(
+        client, auth_headers, group_chat, test_user, db_session
+):
+    nonexistent_user_id = str(uuid.uuid4())
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        response = await ac.patch(
+            f"/chat/{group_chat.id}/members/",
+            json={"member_ids": [nonexistent_user_id]},
+            headers=auth_headers
+        )
+    assert response.status_code == 404
+    assert "не найдены" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_remove_admin_self(
+        client, auth_headers, group_chat, test_user, db_session
+):
+    note = await GroupMember.first(chat_id=group_chat.id, user_id=test_user.id, session=db_session)
+    note.is_admin = True
+    db_session.add(note)
+    db_session.add(group_chat)
+    await db_session.commit()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        response = await ac.patch(
+            f"/chat/{group_chat.id}/members/",
+            json={"member_ids": [str(test_user.id)]},
+            headers=auth_headers
+        )
+    assert response.status_code == 400
+    assert "Администратор не может удалить самого себя" in response.json()["detail"]
+

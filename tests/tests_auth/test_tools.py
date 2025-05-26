@@ -3,7 +3,7 @@ import uuid
 import pytest
 from jwt import InvalidTokenError
 
-from app.auth.config import settings
+from app.config import settings
 from app.auth.my_jwt import JWTAuth
 from app.auth.tools import try_decode_token
 from app.auth.types import TokenType

@@ -5,7 +5,7 @@ from typing import Any
 
 import jwt
 
-from app.auth.config import settings
+from app.config import settings
 from app.auth.types import TokenType
 from app.auth.utils import convert_to_timestamp
 

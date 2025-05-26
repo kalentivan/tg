@@ -3,15 +3,20 @@
 """
 from typing import List
 
+import jwt
 from fastapi import APIRouter, Depends
+from jose import JWTError
+from starlette import status
+from starlette.exceptions import HTTPException
 from starlette.responses import Response
 
 from app.auth.auth import get_current_user, get_current_user_and_device
+from app.config import settings
 from app.auth.init import get_auth_service
 from app.auth.service import AuthService
-from app.auth.token import del_tokens, set_tokens
+from app.auth.token import del_tokens, get_token, set_tokens
 from app.database import AsyncSessionLocal, get_db
-from app.dto import TokensDTO, UserDTO, UserPwdDTO
+from app.dto import RTokenDTO, TokensDTO, UserDTO, UserPwdDTO
 from app.models.models import User
 from app.tools import validate_uuid
 
@@ -63,6 +68,39 @@ async def route_logout(response: Response,
     del_tokens(response)
     response.status_code = 200
     return response
+
+
+@router.post("/token/refresh/",
+             response_model=TokensDTO,
+             tags=LOGIN_ROUTES)
+async def route_token_refresh(response: Response,
+                              data: RTokenDTO,
+                              token: str = Depends(get_token),
+                              auth_service: AuthService = Depends(get_auth_service),
+                              session: AsyncSessionLocal = Depends(get_db),
+                              ) -> TokensDTO:
+    """С токеном авторизации"""
+    try:
+        payload = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+            options={"verify_exp": False}
+        )
+    except JWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Токен не валидный!')
+
+    user_id = validate_uuid(payload.get('sub'))
+    device_id = payload.get('device_id')
+    if not user_id or not device_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail='Не найдены ID пользователя или устройства')
+
+    user = await User.get_or_404(id=user_id, session=session, er_status=status.HTTP_401_UNAUTHORIZED)
+    data = await auth_service.update_tokens(user=user, refresh_token=data.refresh_token, session=session)
+    response.status_code = 200
+    set_tokens(response, data.access_token, data.refresh_token)
+    return data
 
 
 @router.get("/users/",

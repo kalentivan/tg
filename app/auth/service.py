@@ -1,16 +1,18 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from fastapi import Depends
 from jwt import InvalidTokenError
 from sqlalchemy import update
 from starlette import status
 from starlette.exceptions import HTTPException
 
-from app.auth.config import settings
+from app.config import settings
 from app.auth.my_jwt import JWTAuth
 from app.auth.password import get_password_hash, verify_password
 from app.auth.types import TokenType
 from app.auth.utils import check_revoked, generate_device_id
+from app.database import get_db
 from app.dto import TokensDTO, UserPwdDTO
 from app.models.models import IssuedJWTToken, User
 from app.tools import validate_uuid
@@ -26,7 +28,7 @@ class AuthService:
 
     async def register(self,
                        data: UserPwdDTO,
-                       session) -> tuple[User | None, TokensDTO | None]:
+                       session=Depends(get_db)) -> tuple[User | None, TokensDTO | None]:
         """Регистрация пользователя. Создать пользователя, создать токены"""
         if await User.first(email=data.email, session=session):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='CONFLICT')

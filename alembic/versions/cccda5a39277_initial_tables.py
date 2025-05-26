@@ -1,8 +1,8 @@
 """Initial tables
 
-Revision ID: 45e8ab43532d
+Revision ID: cccda5a39277
 Revises: 
-Create Date: 2025-05-25 23:03:44.670180
+Create Date: 2025-05-26 13:04:36.320218
 
 """
 from typing import Sequence, Union
@@ -57,12 +57,10 @@ def upgrade() -> None:
     T('group_members',
       C('user_id', sa.Uuid(), nullable=False),
       C('chat_id', sa.Uuid(), nullable=False),
-      C('id', sa.Uuid(), nullable=False),
       FK(['chat_id'], ['chats.id'], ),
       FK(['user_id'], ['users.id'], ),
-      PK('user_id', 'chat_id', 'id')
+      PK('user_id', 'chat_id')
       )
-    Ind(op.f('ix_group_members_id'), 'group_members', ['id'], unique=False)
     T('messages',
       C('chat_id', sa.Uuid(), nullable=True),
       C('sender_id', sa.Uuid(), nullable=True),

@@ -4,7 +4,7 @@ from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
-from app.auth.config import settings
+from app.config import settings
 from app.auth.password import verify_password
 from app.auth.token import get_token, get_ws_token
 from app.database import get_db
