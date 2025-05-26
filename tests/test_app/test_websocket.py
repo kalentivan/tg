@@ -21,15 +21,15 @@ from app.database import AsyncSessionLocal
 def run_server():
     uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
 
+#
+# @pytest.fixture(scope="function")
+# def event_loop():
+#     loop = asyncio.new_event_loop()
+#     yield loop
+#     loop.close()
 
-@pytest.fixture(scope="session")
-def event_loop():
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
 
-
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 async def start_server(event_loop):
     proc = Process(target=run_server, daemon=True)
     proc.start()

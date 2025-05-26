@@ -270,7 +270,7 @@ async def test_data(db_session):
                             message_id=message.id,
                             user_id=reader.user_id,
                         )
-                        await db_session.add(obj)
+                        db_session.add(obj)
                     await db_session.commit()
                     messages_with_reads[chat.id].append(message.id)
 
