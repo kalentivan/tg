@@ -2,8 +2,6 @@ from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
-from core.types import ID
-
 
 class UserDTO(BaseModel):
     username: str | None = ""
@@ -21,30 +19,13 @@ class ChatDTO(BaseModel):
     admin_id: str = ""
 
 
-class ChatIdsDTO(ChatDTO):
-    member_ids: List[ID] = []  # Для групповых чатов
-
-
-class ChatIdMems(ChatDTO):
-    id: ID
-    members: List[UserDTO] = []
-
-    model_config = ConfigDict(from_attributes=True)  # Замените orm_mode на from_attributes
-
 class MessageDTO(BaseModel):
-    text: str
-
-
-class MessageChIdDTO(MessageDTO):
-    chat_id: ID
-
-
-class MessageDTO(MessageChIdDTO):
-    id: ID
-    sender_id: ID
+    id: str
+    sender_id: str
     timestamp_str: str
     is_read: bool
-
+    chat_id: str
+    text: str
     model_config = ConfigDict(from_attributes=True)  # Замените orm_mode на from_attributes
 
 
@@ -56,19 +37,19 @@ class MessageHistoryDTO(BaseModel):
 class ChatCreateDTO(BaseModel):
     name: Optional[str] = None
     is_group: bool = False
-    member_ids: List[ID] = []  # Список ID пользователей для группового чата
+    member_ids: List[str] = None  # Список ID пользователей для группового чата
 
 
 class MemberAddDTO(BaseModel):
-    user_id: ID
+    user_id: str
 
 
 class MembersIdsDTO(BaseModel):
-    member_ids: List[ID] = None  # Список ID пользователей для группового чата
+    member_ids: List[str] = None  # Список ID пользователей для группового чата
 
 
 class TokensDTO(BaseModel):
-    user_id: ID = 0
+    user_id: str = 0
     role: str = ""
     access_token: str = ""
     refresh_token: str | None = ""

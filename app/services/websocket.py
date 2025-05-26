@@ -1,9 +1,10 @@
+import logging
 from typing import Dict, Set
 from uuid import UUID
 
 from fastapi import WebSocket
 
-from core.types import ID
+logger = logging.getLogger(__name__)
 
 
 class ConnectionManager:
@@ -38,12 +39,15 @@ class ConnectionManager:
                            chat_id: UUID,
                            recipient_id: UUID | None = None):
         if chat_id not in self.active_connections:
+            logger.error(f"🛑🛑 {chat_id=} not in self.active_connections!")
             return
         for user_id, websockets in self.active_connections[chat_id].items():
-            if not (recipient_id is None or user_id == recipient_id):
+            if not (recipient_id is None or str(user_id) == str(recipient_id)):
+                logger.info(f"🛑🛑 not (recipient_id is None or user_id == recipient_id)")
                 continue
             for websocket in websockets:
                 await websocket.send_json(message)
+                logger.info(f"✅✅ {message=} Отправлено!")
 
 
 connection_manager = ConnectionManager()

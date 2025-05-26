@@ -4,7 +4,9 @@ import pytest
 from fastapi import status
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.exc import IntegrityError
+from starlette.exceptions import HTTPException
 
+from app.routes.chat import is_user_in_chat, user_is_admin_chat
 from main import app  # твое приложение
 from app.auth.service import AuthService
 from app.dto import ChatCreateDTO, MemberAddDTO
@@ -297,3 +299,119 @@ async def test_remove_admin_self(
     assert response.status_code == 400
     assert "Администратор не может удалить самого себя" in response.json()["detail"]
 
+
+@pytest.mark.asyncio
+async def test_is_user_in_chat_success_group_chat(db_session, test_user, group_chat):
+    # Проверяем, что test_user (участник и админ) находится в групповом чате
+    members = await is_user_in_chat(test_user, group_chat, db_session)
+    assert len(members) == 2  # Два участника: test_user и test_user2
+    assert test_user.id in [member.user_id for member in members]
+    assert all(isinstance(member, GroupMember) for member in members)
+
+
+@pytest.mark.asyncio
+async def test_is_user_in_chat_success_personal_chat(db_session, test_user, personal_chat):
+    # Проверяем, что test_user (участник) находится в личном чате
+    members = await is_user_in_chat(test_user, personal_chat, db_session)
+    assert len(members) == 2  # Два участника: test_user и test_user2
+    assert test_user.id in [member.user_id for member in members]
+    assert all(isinstance(member, GroupMember) for member in members)
+
+
+@pytest.mark.asyncio
+async def test_is_user_in_chat_not_member(db_session, test_user3, group_chat):
+    # Проверяем, что test_user3 (не участник) не находится в групповом чате
+    with pytest.raises(HTTPException) as exc_info:
+        await is_user_in_chat(test_user3, group_chat, db_session)
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail == "Вы не участник этого чата"
+
+
+@pytest.mark.asyncio
+async def test_is_user_in_chat_chat_not_found(db_session, test_user):
+    # Создаём "несуществующий" чат с невалидным ID
+    from app.tools import validate_uuid
+    chat = Chat(id=validate_uuid("00000000-0000-0000-0000-000000000000"), name="Non-existent", is_group=True)
+    with pytest.raises(HTTPException) as exc_info:
+        await is_user_in_chat(test_user, chat, db_session)
+    assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_user_is_admin_chat_admin_group_chat(db_session, test_user, group_chat):
+    # Проверяем, что test_user (админ) возвращает True в групповом чате
+    is_admin = await user_is_admin_chat(test_user, group_chat, db_session)
+    assert is_admin is True
+
+
+@pytest.mark.asyncio
+async def test_user_is_admin_chat_not_admin_group_chat(db_session, test_user2, group_chat):
+    # Проверяем, что test_user2 (не админ) возвращает False в групповом чате
+    is_admin = await user_is_admin_chat(test_user2, group_chat, db_session)
+    assert is_admin is False
+
+
+@pytest.mark.asyncio
+async def test_user_is_admin_chat_admin_personal_chat(db_session, test_user, personal_chat):
+    # Проверяем, что test_user (админ) возвращает True в личном чате
+    is_admin = await user_is_admin_chat(test_user, personal_chat, db_session)
+    assert is_admin is True
+
+
+@pytest.mark.asyncio
+async def test_user_is_admin_chat_not_admin_personal_chat(db_session, test_user2, personal_chat):
+    # Проверяем, что test_user2 (не админ) возвращает False в личном чате
+    is_admin = await user_is_admin_chat(test_user2, personal_chat, db_session)
+    assert is_admin is False
+
+
+@pytest.mark.asyncio
+async def test_user_is_admin_chat_not_member(db_session, test_user3, group_chat):
+    # Проверяем, что test_user3 (не участник) возвращает False
+    is_admin = await user_is_admin_chat(test_user3, group_chat, db_session)
+    assert is_admin is False
+
+
+@pytest.mark.asyncio
+async def test_user_is_admin_chat_chat_not_found(db_session, test_user):
+    # Создаём "несуществующий" чат с невалидным ID
+    from app.tools import validate_uuid
+    chat = Chat(id=validate_uuid("00000000-0000-0000-0000-000000000000"), name="Non-existent", is_group=True)
+    is_admin = await user_is_admin_chat(test_user, chat, db_session)
+    assert is_admin is False
+
+
+@pytest.mark.asyncio
+async def test_is_user_in_chat_with_test_data(db_session, test_data):
+    # Выбираем случайный групповой чат
+    group_chat = test_data["group_chats"][0]
+    # Получаем участников чата
+    members = await GroupMember.list(session=db_session, chat_id=group_chat.id)
+    member_ids = [member.user_id for member in members]
+    # Выбираем первого участника
+    member = next(user for user in test_data["users"] if user.id == member_ids[0])
+    # Проверяем, что участник находится в чате
+    chat_members = await is_user_in_chat(member, group_chat, db_session)
+    assert len(chat_members) == test_data["group_chat_members"][group_chat.id]
+    assert member.id in [m.user_id for m in chat_members]
+
+
+@pytest.mark.asyncio
+async def test_user_is_admin_chat_with_test_data(db_session, test_data):
+    # Выбираем случайный групповой чат
+    group_chat = test_data["group_chats"][0]
+    # Получаем участников чата
+    members = await GroupMember.list(session=db_session, chat_id=group_chat.id)
+    # Находим админа
+    admin = next(member for member in members if member.is_admin)
+    admin_user = next(user for user in test_data["users"] if user.id == admin.user_id)
+    # Проверяем, что админ возвращает True
+    is_admin = await user_is_admin_chat(admin_user, group_chat, db_session)
+    assert is_admin is True
+
+    # Находим не-админа
+    non_admin = next(member for member in members if not member.is_admin)
+    non_admin_user = next(user for user in test_data["users"] if user.id == non_admin.user_id)
+    # Проверяем, что не-админ возвращает False
+    is_admin = await user_is_admin_chat(non_admin_user, group_chat, db_session)
+    assert is_admin is False

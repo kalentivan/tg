@@ -9,7 +9,6 @@ from app.database import AsyncSessionLocal, get_db
 from app.dto import ChatCreateDTO, ChatDTO, MemberAddDTO, MembersIdsDTO, MessageHistoryDTO
 from app.models.models import Chat, GroupMember, Message, User
 from app.tools import validate_uuid
-from core.types import ID
 
 router = APIRouter(tags=["chat"])
 
@@ -30,12 +29,14 @@ async def router_create_chat(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Личный чат должен содержать ровно одного участника")
     if chat_data.is_group and not chat_data.name:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Групповой чат должен иметь название")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Групповой чат должен иметь название")
 
     # Проверяем, что все указанные пользователи существуют
     members = await User.by_ids(ids=chat_data.member_ids, session=session)
     if len(members) != len(chat_data.member_ids):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Один или несколько пользователей не найдены")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="Один или несколько пользователей не найдены")
 
     # Добавляем создателя в участники, если его нет
     if user not in members:
@@ -53,7 +54,7 @@ async def router_create_chat(
 
 @router.delete("/chat/{chat_id}/")
 async def router_delete_chat(
-        chat_id: ID,
+        chat_id: str,
         user: User = Depends(get_current_user),
         session=Depends(get_db)
 ) -> Response:
@@ -63,13 +64,10 @@ async def router_delete_chat(
     """
     chat_id = validate_uuid(chat_id)
     chat = await Chat.get_or_404(id=chat_id, session=session)
-    # Асинхронно запрашиваем участников
-    members = await GroupMember.list(session=session, chat_id=chat.id)
-    member_ids = [member.user_id for member in members]
-    if user.id not in member_ids:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Вы не участник этого чата")
-    admins = await GroupMember.list(session=session, is_admin=True, chat_id=chat.id)
-    if chat.is_group and user.id not in [a.user_id for a in admins]:
+
+    await is_user_in_chat(user, chat, session)
+
+    if chat.is_group and not await user_is_admin_chat(user, chat, session):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                             detail="Только создатель может удалить групповой чат")
 
@@ -80,7 +78,7 @@ async def router_delete_chat(
 @router.post("/chat/{chat_id}/members/",
              response_model=ChatDTO)
 async def router_add_member(
-        chat_id: ID,
+        chat_id: str,
         member_data: MemberAddDTO,
         user: User = Depends(get_current_user),
         session=Depends(get_db)
@@ -94,10 +92,8 @@ async def router_add_member(
     if not chat.is_group:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Добавление участников возможно только в групповой чат")
-    members = await GroupMember.list(session=session, chat_id=chat.id)
-    member_ids = [member.user_id for member in members]
-    if user.id not in member_ids:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Вы не участник этого чата")
+
+    members = await is_user_in_chat(user, chat, session)
 
     new_member = await User.get_or_404(id=user_id, session=session)
     if new_member.id in [member.user_id for member in members]:
@@ -115,7 +111,7 @@ async def router_add_member(
 @router.post("/chat/{chat_id}/members/",
              response_model=ChatDTO)
 async def router_add_member(
-        chat_id: ID,
+        chat_id: str,
         member_data: MemberAddDTO,
         user: User = Depends(get_current_user),
         session=Depends(get_db)
@@ -129,26 +125,25 @@ async def router_add_member(
     if not chat.is_group:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Добавление участников возможно только в групповой чат")
-    members = await GroupMember.list(session=session, chat_id=chat.id)
-    member_ids = [member.user_id for member in members]
-    if user.id not in member_ids:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Вы не участник этого чата")
+
+    members = await is_user_in_chat(user, chat, session)
 
     new_member = await User.get_or_404(id=user_id, session=session)
     if new_member in [member.user_id for member in members]:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Пользователь уже в чате")
 
-    await GroupMember.create(user_id=new_member.id, chat_id=chat.id, session=session)
+    session.add(GroupMember(user_id=new_member.id, chat_id=chat.id))
+    await session.commit()
     return chat.to_dict()
 
 
-@router.patch("/chat/{chat_id}/members/", response_model=List[dict[str, ID]])
+@router.patch("/chat/{chat_id}/members/", response_model=List[dict[str, str]])
 async def remove_chat_members(
-    chat_id: ID,
+    chat_id: str,
     members_data: MembersIdsDTO,
     user: User = Depends(get_current_user),
     session: AsyncSessionLocal = Depends(get_db)
-) -> List[dict[str, ID]]:
+) -> List[dict[str, str]]:
     """
     Удаление участников из группового чата.
     :param chat_id: ID чата
@@ -198,9 +193,8 @@ async def remove_chat_members(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Один или несколько пользователей не являются участниками чата"
         )
-    admins = await GroupMember.list(is_admin=True, chat_id=chat.id, session=session)
-    # Проверяем, что текущий пользователь — администратор чата
-    if user.id not in [a.user_id for a in admins]:
+
+    if not await user_is_admin_chat(user, chat, session):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Только администратор чата может удалять участников"
@@ -223,7 +217,7 @@ async def remove_chat_members(
 @router.post("/chat/{chat_id}/history/",
              response_model=MessageHistoryDTO)
 async def router_history(
-        chat_id: ID,
+        chat_id: str,
         limit: int = 10,
         offset: int = 0,
         user: User = Depends(get_current_user),
@@ -249,3 +243,16 @@ async def router_history(
         "messages": [message.to_dict() for message in messages],
         "total": total
     }
+
+
+async def is_user_in_chat(user: User, chat: Chat, session) -> List[GroupMember]:
+    members = await GroupMember.list(session=session, chat_id=chat.id)
+    member_ids = [member.user_id for member in members]
+    if user.id not in member_ids:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Вы не участник этого чата")
+    return members
+
+
+async def user_is_admin_chat(user: User, chat: Chat, session) -> bool:
+    admins = await GroupMember.list(session=session, is_admin=True, chat_id=chat.id)
+    return user.id in [a.user_id for a in admins]

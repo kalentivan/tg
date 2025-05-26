@@ -4,9 +4,8 @@ from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
-from app.config import settings
-from app.auth.password import verify_password
 from app.auth.token import get_token, get_ws_token
+from app.config import settings
 from app.database import get_db
 from app.models.models import User
 from app.tools import validate_uuid
@@ -36,6 +35,7 @@ async def get_current_user_and_device(token: str = Depends(get_token),
     except JWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Токен не валидный!')
 
+    # получаем пользователя и устройство пользователя из токена
     user_id = validate_uuid(payload.get('sub'))
     device_id = payload.get('device_id')
     if not user_id:

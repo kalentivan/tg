@@ -1,3 +1,4 @@
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
@@ -12,15 +13,16 @@ from app.handlers.ws_chat import read_message, send_message
 from app.models.models import Chat, GroupMember, User
 from app.services.websocket import connection_manager
 from app.tools import validate_uuid
-from core.types import ID
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 @router.websocket("/ws/{chat_id}")
 async def websocket_chat(
         websocket: WebSocket,
-        chat_id: ID,
+        chat_id: str,
         user: User = Depends(get_current_ws_user),
         session: AsyncSession = Depends(get_db)
 ):
@@ -28,6 +30,7 @@ async def websocket_chat(
     try:
         chat = await get_chat_with_membership_check(chat_id, user.id, session)
     except HTTPException:
+        logger.error(f"🛑 Сообщение из другого чата")
         await websocket.close(code=1008)
         return
 
@@ -35,18 +38,28 @@ async def websocket_chat(
     try:
         while True:
             data = await websocket.receive_json()
-            print(str(data) + " ОК !!!!")
-            match data.get("action"):
-                case "send_message":
-                    await send_message(websocket, session, user, data, chat)
-                case "message_read":
-                    await read_message(websocket, session, user, data, chat)
+            logger.info(str(data) + f" ⬇️ принято {chat_id=}")
+            if data.get("chat_id") != str(chat_id):
+                logger.warning(f"🛑 Сообщение из другого чата")
+                continue
+            try:
+                match data.get("action"):
+                    case "send_message":
+                        await send_message(websocket, session, user, data, chat)
+                    case "message_read":
+                        await read_message(websocket, session, user, data, chat)
+            except WebSocketDisconnect as ex:
+                logger.error(f"🛑 Unexpected error in WebSocket: {ex=}")
+                raise
+            except Exception as ex:
+                logger.error(f"🛑 Unexpected error in WebSocket: {ex=}")
+                continue
 
-    except WebSocketDisconnect:
-        print(f"WebSocket disconnected for user {user.id} in chat {chat_id}")
+    except WebSocketDisconnect as ex:
+        logger.error(f"🛑 WebSocket disconnected for user {user.id} in chat {chat_id} {ex=}")
         connection_manager.disconnect(websocket, chat_id, user.id)
     except Exception as e:
-        print(f"Unexpected error in WebSocket: {e}")
+        logger.error(f"🛑 Unexpected error in WebSocket: {e}")
         connection_manager.disconnect(websocket, chat_id, user.id)
     finally:
         # Убедимся, что сессия закрывается корректно

@@ -37,13 +37,7 @@ async def check_revoked(jti: str | uuid.UUID, session) -> bool:
 
 
 def convert_to_timestamp(dt: datetime) -> timedelta:
-    """
-    Преобразует объект datetime в timedelta, представляющий разницу от эпохи (1970-01-01 00:00:00 UTC).
-
-    :param dt: Объект datetime (должен быть offset-aware, т.е. с временной зоной)
-    :return: Объект timedelta, представляющий разницу между dt и началом эпохи
-    """
-    # Убедимся, что dt имеет временную зону (offset-aware)
+    # Проверим наличие timezone
     if dt.tzinfo is None:
         raise ValueError("datetime object must be offset-aware (have timezone info)")
 
@@ -56,7 +50,6 @@ def convert_to_timestamp(dt: datetime) -> timedelta:
 
 def get_sha256_hash(line: str) -> str:
     """
-
     :param line:
     :return:
     """

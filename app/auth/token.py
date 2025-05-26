@@ -7,7 +7,7 @@ from starlette.websockets import WebSocket
 
 def get_token(request: Request) -> str:
     """
-    Берем токен из headers, либо если там нет - из cookies
+    Универсальная функция - берем токен из headers, либо если там нет - из cookies
     :param request:
     :return:
     """

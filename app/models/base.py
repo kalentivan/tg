@@ -8,7 +8,6 @@ from sqlalchemy.orm import DeclarativeBase
 from starlette import status
 
 from app.tools import validate_uuid
-from core.types import ID
 
 T = TypeVar("T", bound="Base")
 
@@ -89,7 +88,7 @@ class BaseId(Base):
 
     @classmethod
     async def by_ids(cls,
-                     ids: List[ID],
+                     ids: List[str],
                      session: Optional[AsyncSession] = None) -> list[Any] | Sequence[Self]:
         """
         Возвращает список объектов, соответствующих списку ID.
