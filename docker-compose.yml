@@ -29,7 +29,7 @@ services:
       - /log:/log
       - ./backup.sql:/docker-entrypoint-initdb.d/backup.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres || exit 1"]
+      test: ["CMD-SHELL", "pg_isready -U ${TG_DB_USER} || exit 1"]
       interval: 10s    # как часто проверять
       timeout: 5s      # максимальное время ожидания ответа
       retries: 5       # сколько раз подряд должно быть ОК
