@@ -33,6 +33,15 @@ def convert_datetime(value: bytes) -> datetime:
 aiosqlite.register_adapter(datetime, adapt_datetime)
 aiosqlite.register_converter("timestamp", convert_datetime)
 
+
+# Устанавливаем режим тестирования
+@pytest.fixture(autouse=True)
+def set_testing_mode():
+    os.environ["TESTING"] = "true"
+    yield
+    os.environ["TESTING"] = "false"  # Сбрасываем после теста
+
+
 # Тестовая база данных (SQLite в памяти)
 # TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", "sqlite+aiosqlite:///test.sqlite")
 USER = os.getenv("TG_DB_USER")

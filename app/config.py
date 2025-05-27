@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     TG_DB_PASSWORD: str
     TG_DB_HOST: str
     TG_DB_PORT: str
+    TG_DB_TEST_NAME: str
 
     # JWT settings
     TG_SECRET_KEY: str

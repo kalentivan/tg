@@ -22,7 +22,9 @@ logger = logging.getLogger(__name__)
 
 
 def run_server():
+    os.environ["TESTING"] = "true"
     uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
+    os.environ["TESTING"] = "false"
 
 
 # Для тестирования веб-сокетов создаем новый движок, так как при использованит прошлого возникают конфликты even-loop
@@ -49,7 +51,7 @@ async def start_server(db_session_factory):
     proc = Process(target=run_server, daemon=True)
     proc.start()
     await wait_load_db(db_session_factory)  # Подождать пока поднимется сервер
-    await asyncio.sleep(1) # надо еще подождать, иначе падает, так как не находит таблицы
+    await asyncio.sleep(10)  # надо еще подождать, иначе падает, так как не находит таблицы
     yield
     proc.terminate()
 
