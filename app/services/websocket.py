@@ -39,7 +39,7 @@ class ConnectionManager:
                            chat_id: UUID,
                            recipient_id: UUID | None = None):
         if chat_id not in self.active_connections:
-            logger.error(f"🛑🛑 {chat_id=} not in self.active_connections!")
+            logger.info(f"🛑🛑 {chat_id=} not in self.active_connections!")
             return
         for user_id, websockets in self.active_connections[chat_id].items():
             if not (recipient_id is None or str(user_id) == str(recipient_id)):

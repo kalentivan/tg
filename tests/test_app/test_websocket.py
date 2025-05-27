@@ -1,8 +1,8 @@
 import asyncio
 import logging
 import os
-import uuid
 from multiprocessing import Process
+from uuid import uuid4
 
 import pytest
 import uvicorn
@@ -12,9 +12,8 @@ from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.auth.service import AuthService
-from app.database import get_db  # Предполагается, что get_db - это зависимость FastAPI
+from app.database import get_db
 from app.dto import UserPwdDTO
-from app.models.base import Base
 from app.models.models import Chat, GroupMember, MessageRead, User
 from app.models.models import Message
 from main import app
@@ -26,13 +25,14 @@ def run_server():
     uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
 
 
-# Создаём тестовый движок базы данных
+# Для тестирования веб-сокетов создаем новый движок, так как при использованит прошлого возникают конфликты even-loop
 USER = os.getenv("TG_DB_USER")
 PWD = os.getenv("TG_DB_PASSWORD")
 HOST = os.getenv("TG_DB_HOST")
 PORT = os.getenv("TG_DB_PORT")
 TEST_HOST = "127.0.0.1:8000"
-TEST_DATABASE_URL = f"postgresql+asyncpg://{USER}:{PWD}@{HOST}:{PORT}/tg-test"
+BD_NAME = os.getenv("TG_DB_TEST_NAME")
+TEST_DATABASE_URL = f"postgresql+asyncpg://{USER}:{PWD}@{HOST}:{PORT}/{BD_NAME}"
 engine = create_async_engine(TEST_DATABASE_URL, echo=False)
 test_engine = create_async_engine(TEST_DATABASE_URL, echo=False)
 
@@ -49,7 +49,7 @@ async def start_server(db_session_factory):
     proc = Process(target=run_server, daemon=True)
     proc.start()
     await wait_load_db(db_session_factory)  # Подождать пока поднимется сервер
-    await asyncio.sleep(10)
+    await asyncio.sleep(1) # надо еще подождать, иначе падает, так как не находит таблицы
     yield
     proc.terminate()
 
@@ -104,6 +104,7 @@ def override_dependency(db_session_factory):
     app.dependency_overrides.clear()
 
 
+# переопределяем фикстуры, чтобы они были зависимы от ws_db_session(start_server)
 @pytest.fixture
 async def ws_test_user(ws_db_session):
     if user := await User.first(email="test@example.com", session=ws_db_session):
@@ -169,7 +170,7 @@ async def ws_personal_chat(ws_db_session, ws_test_user, ws_test_user2):
 @pytest.fixture
 async def ws_auth_headers(ws_test_user):
     auth_service = AuthService()
-    payload = {"device_id": str(uuid.uuid4())}
+    payload = {"device_id": str(uuid4())}
     token = auth_service._jwt_auth.generate_access_token(subject=str(ws_test_user.id), payload=payload)
     return {"Authorization": f"Bearer {token}"}
 
@@ -177,7 +178,7 @@ async def ws_auth_headers(ws_test_user):
 @pytest.mark.asyncio
 async def test_websocket_connect(start_server, ws_db_session, ws_test_user, ws_personal_chat):
     auth_service = AuthService()
-    payload = {"device_id": str(uuid.uuid4())}
+    payload = {"device_id": str(uuid4())}
     token = auth_service._jwt_auth.generate_access_token(subject=str(ws_test_user.id), payload=payload)
     auth_headers = {"Authorization": f"Bearer {token}"}
     uri = f"ws://{TEST_HOST}/ws/{ws_personal_chat.id}"
@@ -205,7 +206,7 @@ async def test_websocket_send_message(start_server, ws_db_session, db_session_fa
     uri = f"ws://{TEST_HOST}/ws/{ws_personal_chat.id}"
     async with ClientSession() as session:
         async with session.ws_connect(uri, headers=ws_auth_headers) as websocket:
-            message_uuid = uuid.uuid4()
+            message_uuid = uuid4()
             await asyncio.wait_for(websocket.send_json({
                 "action": "send_message",
                 "text": "Test message",
@@ -246,7 +247,7 @@ async def test_websocket_read_message_personal_chat(
     # Отправляем сообщение от ws_test_user
     async with ClientSession() as session:
         async with session.ws_connect(uri, headers=ws_auth_headers) as websocket:
-            message_uuid = uuid.uuid4()
+            message_uuid = uuid4()
             await asyncio.wait_for(websocket.send_json({
                 "action": "send_message",
                 "text": "Test message for reading",
@@ -259,7 +260,7 @@ async def test_websocket_read_message_personal_chat(
                 if msg.type == WSMsgType.TEXT:
                     response = msg.json()
                     assert response["text"] == "Test message for reading"
-                    assert response["id"] == str(message_uuid)
+                    assert response["message_id"] == str(message_uuid)
                 else:
                     print(f"🔴 Получен не текстовый тип: {msg.type}")
             except asyncio.TimeoutError:
@@ -272,7 +273,7 @@ async def test_websocket_read_message_personal_chat(
 
     # Генерируем токен для ws_test_user2
     auth_service = AuthService()
-    payload = {"device_id": str(uuid.uuid4())}
+    payload = {"device_id": str(uuid4())}
     token = auth_service._jwt_auth.generate_access_token(subject=str(ws_test_user2.id), payload=payload)
     user2_headers = {"Authorization": f"Bearer {token}"}
 
@@ -291,7 +292,7 @@ async def test_websocket_read_message_personal_chat(
                 if msg.type == WSMsgType.TEXT:
                     response = msg.json()
                     if response.get("action") == "message_read":
-                        assert response["id"] == str(message_uuid)
+                        assert response["message_id"] == str(message_uuid)
                         assert response["read_by_user_id"] == str(ws_test_user2.id)
                 else:
                     logger.error(f"🔴 Получен не текстовый тип: {msg.type}")
@@ -308,83 +309,83 @@ async def test_websocket_read_message_personal_chat(
             await websocket.close()
 
 
-# @pytest.mark.asyncio
-# async def test_websocket_read_message_group_chat(
-#         start_server, ws_db_session, db_session_factory, ws_auth_headers, ws_group_chat, ws_test_user, ws_test_user2
-# ):
-#     """
-#     Тестирует чтение сообщения в групповом чате.
-#     ws_test_user отправляет сообщение, ws_test_user2 читает его.
-#     Проверяем, что создаётся запись в MessageRead.
-#     """
-#     uri = f"ws://{TEST_HOST}/ws/{ws_group_chat.id}"
-#
-#     # Отправляем сообщение от ws_test_user
-#     async with ClientSession() as session:
-#         async with session.ws_connect(uri, headers=ws_auth_headers) as websocket:
-#             message_uuid = uuid.uuid4()
-#             await asyncio.wait_for(websocket.send_json({
-#                 "action": "send_message",
-#                 "text": "Test group message",
-#                 "message_id": str(message_uuid),
-#                 "chat_id": str(ws_group_chat.id),
-#             }), timeout=20.0)
-#             logger.info(f"🔄 Ждем")
-#             try:
-#                 msg = await asyncio.wait_for(websocket.receive(), timeout=2.0)
-#                 if msg.type == WSMsgType.TEXT:
-#                     response = msg.json()
-#                     logger.info(f"📥 Получено: {response}")
-#                     assert response["text"] == "Test group message"
-#                 else:
-#                     logger.error(f"🔴 Получен не текстовый тип: {msg.type}")
-#             except asyncio.TimeoutError:
-#                 logger.error("🔴 Таймаут ожидания сообщения")
-#                 assert False, "Не получено сообщение от сервера"
-#
-#             await websocket.close()
-#
-#     # Даём серверу время зафиксировать транзакцию
-#     await asyncio.sleep(0.1)
-#
-#     # Генерируем токен для ws_test_user2
-#     auth_service = AuthService()
-#     payload = {"device_id": str(uuid.uuid4())}
-#     token = auth_service._jwt_auth.generate_access_token(subject=str(ws_test_user2.id), payload=payload)
-#     user2_headers = {"Authorization": f"Bearer {token}"}
-#
-#     # ws_test_user2 подключается и читает сообщение
-#     async with ClientSession() as session:
-#         async with session.ws_connect(uri, headers=user2_headers) as websocket:
-#             await asyncio.wait_for(websocket.send_json({
-#                 "action": "message_read",
-#                 "message_id": str(message_uuid),
-#                 "chat_id": str(ws_group_chat.id),
-#             }), timeout=2.0)
-#             logger.info(f"🔄 Ждем")
-#             try:
-#                 msg = await asyncio.wait_for(websocket.receive(), timeout=2.0)
-#                 if msg.type == WSMsgType.TEXT:
-#                     response = msg.json()
-#                     logger.info(f"📥 Получено: {response}")
-#                     assert response["message_id"] == str(message_uuid)
-#                     assert response.get("read_by_all") is True  # Так как только ws_test_user2 читает
-#                 else:
-#                     logger.info(f"🔴 Получен не текстовый тип: {msg.type}")
-#             except asyncio.TimeoutError:
-#                 logger.error("🔴 Таймаут ожидания сообщения")
-#                 assert False, "Не получено сообщение от сервера"
-#
-#             # Проверяем, что создана запись в MessageRead
-#             async with db_session_factory() as check_session:
-#                 message_read = await MessageRead.first(
-#                     session=check_session,
-#                     message_id=message_uuid,
-#                     user_id=ws_test_user2.id
-#                 )
-#                 assert message_read is not None
-#
-#             await websocket.close()
+@pytest.mark.asyncio
+async def test_websocket_read_message_group_chat(
+        start_server, ws_db_session, db_session_factory, ws_auth_headers, ws_group_chat, ws_test_user, ws_test_user2
+):
+    """
+    Тестирует чтение сообщения в групповом чате.
+    ws_test_user отправляет сообщение, ws_test_user2 читает его.
+    Проверяем, что создаётся запись в MessageRead.
+    """
+    uri = f"ws://{TEST_HOST}/ws/{ws_group_chat.id}"
+
+    # Отправляем сообщение от ws_test_user
+    async with ClientSession() as session:
+        async with session.ws_connect(uri, headers=ws_auth_headers) as websocket:
+            message_uuid = uuid4()
+            await asyncio.wait_for(websocket.send_json({
+                "action": "send_message",
+                "text": "Test group message",
+                "message_id": str(message_uuid),
+                "chat_id": str(ws_group_chat.id),
+            }), timeout=20.0)
+            logger.info(f"🔄 Ждем")
+            try:
+                msg = await asyncio.wait_for(websocket.receive(), timeout=2.0)
+                if msg.type == WSMsgType.TEXT:
+                    response = msg.json()
+                    logger.info(f"📥 Получено: {response}")
+                    assert response["text"] == "Test group message"
+                else:
+                    logger.error(f"🔴 Получен не текстовый тип: {msg.type}")
+            except asyncio.TimeoutError:
+                logger.error("🔴 Таймаут ожидания сообщения")
+                assert False, "Не получено сообщение от сервера"
+
+            await websocket.close()
+
+    # Даём серверу время зафиксировать транзакцию
+    await asyncio.sleep(0.1)
+
+    # Генерируем токен для ws_test_user2
+    auth_service = AuthService()
+    payload = {"device_id": str(uuid4())}
+    token = auth_service._jwt_auth.generate_access_token(subject=str(ws_test_user2.id), payload=payload)
+    user2_headers = {"Authorization": f"Bearer {token}"}
+
+    # ws_test_user2 подключается и читает сообщение
+    async with ClientSession() as session:
+        async with session.ws_connect(uri, headers=user2_headers) as websocket:
+            await asyncio.wait_for(websocket.send_json({
+                "action": "message_read",
+                "message_id": str(message_uuid),
+                "chat_id": str(ws_group_chat.id),
+            }), timeout=10.0)
+            logger.info(f"🔄 Ждем")
+            try:
+                msg = await asyncio.wait_for(websocket.receive(), timeout=10.0)
+                if msg.type == WSMsgType.TEXT:
+                    response = msg.json()
+                    logger.info(f"📥 Получено: {response}")
+                    assert response["message_id"] == str(message_uuid)
+                    assert response.get("read_by_all") is True  # Так как только ws_test_user2 читает
+                else:
+                    logger.info(f"🔴 Получен не текстовый тип: {msg.type}")
+            except asyncio.TimeoutError:
+                logger.error("🔴 Таймаут ожидания сообщения")
+                assert False, "Не получено сообщение от сервера"
+
+            # Проверяем, что создана запись в MessageRead
+            async with db_session_factory() as check_session:
+                message_read = await MessageRead.first(
+                    session=check_session,
+                    message_id=message_uuid,
+                    user_id=ws_test_user2.id
+                )
+                assert message_read is not None
+
+            await websocket.close()
 
 
 @pytest.mark.asyncio
@@ -399,7 +400,7 @@ async def test_websocket_read_message_invalid_id(
 
     async with ClientSession() as session:
         async with session.ws_connect(uri, headers=ws_auth_headers) as websocket:
-            invalid_message_id = uuid.uuid4()
+            invalid_message_id = uuid4()
             await asyncio.wait_for(websocket.send_json({
                 "action": "message_read",
                 "message_id": str(invalid_message_id),
@@ -420,3 +421,74 @@ async def test_websocket_read_message_invalid_id(
                 assert False, "Не получено сообщение от сервера"
 
             await websocket.close()
+
+
+@pytest.mark.asyncio
+async def test_websocket_send_multiple_messages(
+    start_server, ws_db_session, db_session_factory, ws_auth_headers, ws_personal_chat, ws_test_user
+):
+    """
+    Тестирует отправку нескольких сообщений с интервалом времени, как будто пользователь пишет в чат.
+    Проверяет получение сообщений через WebSocket и их сохранение в базе данных.
+    """
+    uri = f"ws://{TEST_HOST}/ws/{ws_personal_chat.id}"
+    async with ClientSession() as session:
+        async with session.ws_connect(uri, headers=ws_auth_headers) as websocket:
+            assert not websocket.closed
+            print(f"🔗 Соединение установлено с {uri}")
+
+            # Список для хранения UUID сообщений
+            message_uuids = []
+            messages_to_send = [
+                "Привет, как дела?",
+                "Я тут подумал...",
+                "Давай созвонимся!"
+            ]
+
+            # Отправляем сообщения с интервалом 0.5 секунды
+            for msg_text in messages_to_send:
+                message_uuid = uuid4()
+                message_uuids.append(message_uuid)
+                await websocket.send_json({
+                    "action": "send_message",
+                    "text": msg_text,
+                    "chat_id": str(ws_personal_chat.id),
+                    "message_id": str(message_uuid)
+                })
+                print(f"📤 Сообщение отправлено: {msg_text} (UUID: {message_uuid})")
+                await asyncio.sleep(0.5)  # Интервал между сообщениями
+
+            # Ожидаем и проверяем получение всех сообщений
+            received_messages = []
+            try:
+                for _ in range(len(messages_to_send)):
+                    msg = await asyncio.wait_for(websocket.receive(), timeout=10.0)
+                    if msg.type == WSMsgType.TEXT:
+                        response = msg.json()
+                        print(f"📥 Получено: {response}")
+                        received_messages.append(response)
+                    else:
+                        print(f"🔴 Получен не текстовый тип: {msg.type}")
+                        assert False, f"Ожидался текстовый тип, получен: {msg.type}"
+            except asyncio.TimeoutError:
+                print("🔴 Таймаут ожидания сообщения")
+                assert False, "Не получены все сообщения от сервера"
+
+            # Проверяем, что все сообщения получены
+            for expected_text, received in zip(messages_to_send, received_messages):
+                print(received)
+                assert received["text"] == expected_text
+                assert received["message_id"] in [str(uuid) for uuid in message_uuids]
+
+            # Проверяем, что все сообщения сохранены в базе данных
+            await asyncio.sleep(0.1)  # Даём серверу время зафиксировать транзакции
+            async with db_session_factory() as check_session:
+                for msg_uuid, msg_text in zip(message_uuids, messages_to_send):
+                    message = await Message.first(id=msg_uuid, session=check_session)
+                    assert message is not None, f"Сообщение {msg_uuid} не найдено в базе"
+                    assert message.text == msg_text
+                    assert message.chat_id == ws_personal_chat.id
+                    assert message.sender_id == ws_test_user.id
+
+            await websocket.close()
+            print(f"🔴 Соединение закрыто")

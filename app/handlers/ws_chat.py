@@ -34,7 +34,7 @@ async def send_message(websocket, session, user: User, data: dict, chat: Chat):
     except HTTPException as e:
         logger.error(f"HTTPException {e=}")
         if e.status_code == status.HTTP_409_CONFLICT:
-            await cm.send_message({"error": "Сообщение уже существует"}, recipient_id=user.id)
+            await cm.send_message({"error": "Сообщение уже существует", "message_id": data.get("message_id")}, recipient_id=user.id)
             return
         raise
     except Exception as e:
@@ -43,7 +43,10 @@ async def send_message(websocket, session, user: User, data: dict, chat: Chat):
         raise
     try:
         logger.info(f"▶️▶️ {message.id=} Отправляем")
-        await cm.send_message(message.to_dict(), chat.id)
+        data = message.to_dict()
+        del data["id"]
+        data["message_id"] = str(message.id)
+        await cm.send_message(data, chat.id)
         logger.info(f"✅✅ {message.id=} Отправлено!")
     except Exception as e:
         logger.error(f"🛑 connection_manager {e=}")
@@ -54,15 +57,15 @@ async def send_message(websocket, session, user: User, data: dict, chat: Chat):
 async def read_message(websocket, session, user: User, data: dict, chat: Chat) -> bool | None:
     message_id = validate_uuid(data.get("message_id"))
     if not message_id:
-        await cm.send_message({"error": "Требуется поле message_id"}, chat.id, recipient_id=user.id)
+        await cm.send_message({"error": "Требуется поле message_id", "message_id": data.get("message_id")}, chat.id, recipient_id=user.id)
         return False
     try:
         message = await Message.first(id=message_id, session=session)
         if not message:
-            await cm.send_message({"error": "Сообщение не найдено"}, chat.id, recipient_id=user.id)
+            await cm.send_message({"error": "Сообщение не найдено", "message_id": data.get("message_id")}, chat.id)
             return False
         if message.chat_id != chat.id:
-            await cm.send_message({"error": "Сообщение не принадлежит этому чату"}, chat.id, recipient_id=user.id)
+            await cm.send_message({"error": "Сообщение не принадлежит этому чату", "message_id": data.get("message_id")})
             return False
         if not chat.is_group:
             return await read_in_person_chat(session, user, message, chat.id)
@@ -94,8 +97,7 @@ async def read_in_person_chat(session, user: User, message: Message, chat_id: UU
                     "chat_id": str(chat_id),
                     "read_by_user_id": str(user.id)
                 },
-                chat_id,
-                recipient_id=message.sender_id
+                chat_id
             )
         except Exception as e:
             logger.error(f"🛑 read_in_person_chat {e=}")
@@ -136,8 +138,7 @@ async def read_in_group_chat(session, user: User, message: Message, chat: Chat):
                         "chat_id": str(chat.id),
                         "read_by_all": True
                     },
-                    chat.id,
-                    recipient_id=message.sender_id
+                    chat.id
                 )
             else:
                 logger.error(f"🛑 read_count < member_count")

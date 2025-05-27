@@ -39,7 +39,8 @@ USER = os.getenv("TG_DB_USER")
 PWD = os.getenv("TG_DB_PASSWORD")
 HOST = os.getenv("TG_DB_HOST")
 PORT = os.getenv("TG_DB_PORT")
-TEST_DATABASE_URL = f"postgresql+asyncpg://{USER}:{PWD}@{HOST}:{PORT}/tg-test"
+BD_NAME = os.getenv("TG_DB_TEST_NAME")
+TEST_DATABASE_URL = f"postgresql+asyncpg://{USER}:{PWD}@{HOST}:{PORT}/{BD_NAME}"
 engine = create_async_engine(TEST_DATABASE_URL, echo=False)
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -53,6 +54,7 @@ async def override_get_db():
         except Exception:
             await session.rollback()
             raise
+
 
 #
 # @pytest.fixture(scope="session")
@@ -283,3 +285,22 @@ async def test_data(db_session):
         "chat_messages": chat_messages,  # Количество сообщений для каждого чата
         "messages_with_reads": messages_with_reads  # Сообщения с прочтениями для каждого чата
     }
+
+
+@pytest.fixture
+async def valid_refresh_token(auth_service, test_user, db_session):
+    """Фикстура для создания валидного refresh-токена."""
+    device_id = str(uuid.uuid4())
+    access_token, refresh_token, notes = auth_service._issue_tokens_for_user(
+        user=test_user, device_id=device_id
+    )
+    for note in notes:
+        db_session.add(note)
+    await db_session.commit()
+    return refresh_token, device_id
+
+
+@pytest.fixture
+async def auth_service():
+    """Фикстура для создания экземпляра AuthService."""
+    return AuthService()

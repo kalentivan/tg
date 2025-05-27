@@ -84,25 +84,6 @@ def mock_websocket():
 
 
 @pytest.fixture
-async def auth_service():
-    """Фикстура для создания экземпляра AuthService."""
-    return AuthService()
-
-
-@pytest.fixture
-async def valid_refresh_token(auth_service, test_user, db_session):
-    """Фикстура для создания валидного refresh-токена."""
-    device_id = str(uuid.uuid4())
-    access_token, refresh_token, notes = auth_service._issue_tokens_for_user(
-        user=test_user, device_id=device_id
-    )
-    for note in notes:
-        db_session.add(note)
-    await db_session.commit()
-    return refresh_token, device_id
-
-
-@pytest.fixture
 async def revoked_refresh_token(auth_service, test_user, db_session):
     """Фикстура для создания отозванного refresh-токена."""
     device_id = str(uuid.uuid4())
@@ -252,20 +233,3 @@ def test_del_tokens(mock_response):
     assert 'users_refresh_token' in cookies
     assert cookies['users_refresh_token'].value == ""
 
-
-@pytest.mark.asyncio
-async def test_refresh_tokens_success(test_user, valid_refresh_token, db_session, auth_service):
-    """Проверяет успешное обновление токенов."""
-    refresh_token, device_id = valid_refresh_token
-    data = RTokenDTO(refresh_token=refresh_token)
-
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        response = await ac.post(
-            "/token/refresh/",
-            json=data.model_dump(),
-            headers={
-                "Authorization": f"Bearer {auth_service._jwt_auth.generate_access_token(subject=str(test_user.id),
-                                                                                        payload={"device_id": device_id})}"})
-
-    assert response.status_code == 200
